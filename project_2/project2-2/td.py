@@ -110,7 +110,6 @@ def sarsa(env, n_episodes, gamma=1.0, alpha=0.5, epsilon=0.1):
             current_state = next_state
             # update action
             current_action = next_action
-
     ############################
     return Q
 
