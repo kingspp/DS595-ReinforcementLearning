@@ -143,50 +143,118 @@ def epsilon_greedy(Q, state, nA, epsilon=0.1):
     return action
 
 
+# def mc_control_epsilon_greedy(env, n_episodes, gamma=1.0, epsilon=0.1):
+#     """Monte Carlo control with exploring starts.
+#         Find an optimal epsilon-greedy policy.
+#
+#     Parameters:
+#     -----------
+#     env: function
+#         OpenAI gym environment
+#     n_episodes: int
+#         Number of episodes to sample
+#     gamma: float
+#         Gamma discount factor
+#     epsilon: float
+#         The probability to select a random action, range between 0 and 1
+#     Returns:
+#     --------
+#     Q: dict()
+#         A dictionary  that maps from state -> action-values,
+#         where A[s][a] is the estimated action value corresponding to state s and action a.
+#     Hint:
+#     -----
+#     You could consider decaying epsilon, i.e. epsilon = 1-0.1/n_episode during each episode
+#     and episode must > 0.
+#     """
+#
+#     returns_sum = defaultdict(float)
+#     returns_count = defaultdict(float)
+#     # a nested dictionary that maps state -> (action -> action-value)
+#     # e.g. Q[state] = np.darrary(nA)
+#     Q = defaultdict(lambda: np.zeros(env.action_space.n))
+#
+#     ############################
+#     # YOUR IMPLEMENTATION HERE #
+#
+#     # define decaying epsilon
+#     # define decaying epsilon
+#     decay_epsilon = lambda e: e - (0.1 / n_episodes)
+#     # generate empty episode
+#     episodes = []
+#     # calculate average return for this state over all sampled episodes
+#     for i_episode in range(1, n_episodes + 1):
+#         # initialize the episode
+#         state = env.reset()
+#         epsilon = decay_epsilon(epsilon)
+#         # loop until one episode generation is done
+#         while True:
+#             # get an action from epsilon greedy policy
+#             action = epsilon_greedy(Q, state, 2, epsilon)
+#             # return a reward and new state
+#             next_state, reward, done, _ = env.step(action)
+#             # append state, action, reward to episode
+#             episodes.append((state, action, reward))
+#             if done:
+#                 break
+#             # update state to new state
+#             state = next_state
+#
+#         # find unique (state, action) pairs we've visited in this episode
+#         # each state should be a tuple so that we can use it as a dict key
+#         pairs = set([(episode[0], episode[1]) for episode in episodes])
+#         # loop each state,action pair
+#         for (state, action) in pairs:
+#             pair = (state, action)
+#             # find the first occurance of the (state, action) pair in the episode
+#             idx = episodes.index(
+#                 [episode for episode in episodes if episode[0] == state and episode[1] == action][0])
+#             # sum up all rewards since the first occurance
+#             V = sum([reward[2] * gamma ** i for i, reward in enumerate(episodes[idx:])])
+#             returns_sum[pair] += V
+#             returns_count[pair] += 1.
+#             Q[state][action] = returns_sum[pair] / returns_count[pair]
+#
+#     return Q
+
+
 def mc_control_epsilon_greedy(env, n_episodes, gamma=1.0, epsilon=0.1):
-    """Monte Carlo control with exploring starts. 
-        Find an optimal epsilon-greedy policy.
-    
-    Parameters:
-    -----------
-    env: function
+    """
+    Monte Carlo control with exploring starts.
+    Find an optimal epsilon-greedy policy.
+
+    :param env:  function
         OpenAI gym environment
-    n_episodes: int
+    :param n_episodes:  int
         Number of episodes to sample
-    gamma: float
+    :param gamma:  float
         Gamma discount factor
-    epsilon: float
+    :param epsilon:  float
         The probability to select a random action, range between 0 and 1
-    Returns:
-    --------
-    Q: dict()
+    :return: Q: dict()
         A dictionary  that maps from state -> action-values,
-        where A[s][a] is the estimated action value corresponding to state s and action a.
+        where Q[s][a] is the estimated action value corresponding to state s and action a.
+
     Hint:
     -----
-    You could consider decaying epsilon, i.e. epsilon = 1-0.1/n_episode during each episode
-    and episode must > 0.    
-    """
+    You could consider decaying epsilon, i.e. epsilon = epsilon-(0.1/n_episodes) during each episode
+    and episode must > 0.
 
+    """
     returns_sum = defaultdict(float)
     returns_count = defaultdict(float)
     # a nested dictionary that maps state -> (action -> action-value)
-    # e.g. Q[state] = np.darrary(nA)
     Q = defaultdict(lambda: np.zeros(env.action_space.n))
 
-    ############################
-    # YOUR IMPLEMENTATION HERE #
+    def decay(epsilon):
+        return epsilon - (0.1 / n_episodes)
 
-    # define decaying epsilon
-    # define decaying epsilon
-    decay_epsilon = lambda e: e - (0.1 / n_episodes)
-    # generate empty episode
     episodes = []
-    # calculate average return for this state over all sampled episodes
-    for i_episode in range(1, n_episodes + 1):
+
+    for i in range(n_episodes):
+
         # initialize the episode
         state = env.reset()
-        epsilon = decay_epsilon(epsilon)
         # loop until one episode generation is done
         while True:
             # get an action from epsilon greedy policy
@@ -199,7 +267,7 @@ def mc_control_epsilon_greedy(env, n_episodes, gamma=1.0, epsilon=0.1):
                 break
             # update state to new state
             state = next_state
-
+        epsilon = decay(epsilon)
         # find unique (state, action) pairs we've visited in this episode
         # each state should be a tuple so that we can use it as a dict key
         pairs = set([(episode[0], episode[1]) for episode in episodes])
@@ -214,5 +282,4 @@ def mc_control_epsilon_greedy(env, n_episodes, gamma=1.0, epsilon=0.1):
             returns_sum[pair] += V
             returns_count[pair] += 1.
             Q[state][action] = returns_sum[pair] / returns_count[pair]
-
     return Q
