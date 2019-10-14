@@ -214,7 +214,7 @@ def main():
     parser.add_argument('--eps_min', type=float, default=0.1)
     parser.add_argument('--clip', type=float, default=1)
     parser.add_argument('--window', type=int, default=100)
-    parser.add_argument('--mem_capacity', type=int, default=500000)
+    parser.add_argument('--mem_capacity', type=int, default=50000)
     parser.add_argument('--mem_init_size', type=int, default=50000)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--sync_period', type=int, default=10000)
