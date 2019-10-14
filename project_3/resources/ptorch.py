@@ -14,7 +14,7 @@ import os
 import random
 import time
 import gc
-
+import pickle
 import torch
 import torch.nn as nn
 from torch import optim
@@ -106,15 +106,15 @@ class QNet(nn.Module):
 def dqn(E, args, work_dir):
     nA = E.action_space.n
     A = np.arange(nA)
-    mem = ReplayMemory(args.mem_capacity)
     prep = StatePrep(STATE_PREPFN[args.env], 84)
     if args.load == '':
+        mem = ReplayMemory(args.mem_capacity)
         Q = device(QNet(nA))
         T = device(QNet(nA))
     else:
-        Q = device(torch.load(os.path.join(work_dir, 'model_e%s.th' % args.load)))
-        T = device(torch.load(os.path.join(work_dir, 'model_e%s.th' % args.load)))
-
+        mem = pickle.load(open(os.path.join(work_dir, 'buffer_e%s.th' % args.load), 'rb'))
+        Q = device(torch.load(os.path.join(work_dir, 'model_e%s.th' % args.load), map_location=torch.device(dev)))
+        T = device(torch.load(os.path.join(work_dir, 'model_e%s.th' % args.load), map_location=torch.device(dev)))
 
     opt = optim.RMSprop(Q.parameters(),
                         lr=0.00025, eps=0.001, alpha=0.95)
@@ -161,8 +161,12 @@ def dqn(E, args, work_dir):
 
         if e % args.save_freq == 0:
             model_file = os.path.join(work_dir, 'model_e%d.th' % e)
+            buffer_file = os.path.join(work_dir, 'buffer_e%d.th' % e)
             with open(model_file, 'wb') as f:
                 torch.save(Q, f)
+            with open(buffer_file, 'wb') as f:
+                pickle.dump(mem, f)
+
         if e % args.gc_freq == 0:
             gc.collect()
 
