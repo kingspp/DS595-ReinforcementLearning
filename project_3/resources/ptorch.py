@@ -33,7 +33,7 @@ STATE_PREPFN = {
     'pong': lambda s: s[50:, :, :],
 }
 
-dev = "gpu"
+dev = ""
 
 
 def device(func):
@@ -108,8 +108,14 @@ def dqn(E, args, work_dir):
     A = np.arange(nA)
     mem = ReplayMemory(args.mem_capacity)
     prep = StatePrep(STATE_PREPFN[args.env], 84)
-    Q = device(QNet(nA))
-    T = device(QNet(nA))
+    if args.load == '':
+        Q = device(QNet(nA))
+        T = device(QNet(nA))
+    else:
+        Q = device(torch.load(os.path.join(work_dir, 'model_e%s.th' % args.load)))
+        T = device(torch.load(os.path.join(work_dir, 'model_e%s.th' % args.load)))
+
+
     opt = optim.RMSprop(Q.parameters(),
                         lr=0.00025, eps=0.001, alpha=0.95)
     crit = nn.MSELoss()
@@ -198,6 +204,7 @@ def dqn(E, args, work_dir):
 
 
 def main():
+    global dev
     parser = argparse.ArgumentParser(description='DQN')
     parser.add_argument('--env', choices=ENVS.keys())
     parser.add_argument('--max_episodes', type=int, default=10000)
@@ -215,6 +222,8 @@ def main():
     parser.add_argument('--save_freq', type=int, default=100)
     parser.add_argument('--gc_freq', type=int, default=100)
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--dev', type=str, default='cpu')
+    parser.add_argument('--load', type=str, default='')
     parser.add_argument('--upload', action='store_true', default=False)
     args = parser.parse_args()
 
@@ -223,11 +232,13 @@ def main():
 
     E = gym.make(ENVS[args.env])
 
+    dev = args.dev
+
     # set seed
     E.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    torch.set_default_tensor_type('torch.cuda.FloatTensor' if dev=="gpu" else 'torch.FloatTensor')
+    torch.set_default_tensor_type('torch.cuda.FloatTensor' if dev == "gpu" else 'torch.FloatTensor')
 
     if args.upload:
         E = wrappers.Monitor(E, monitor_dir, force=True)
