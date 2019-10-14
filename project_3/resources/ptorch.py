@@ -112,7 +112,7 @@ def dqn(E, args, work_dir):
         Q = device(QNet(nA))
         T = device(QNet(nA))
     else:
-        mem = pickle.load(open(os.path.join(work_dir, 'buffer_e%s.th' % args.load), 'rb'))
+        mem = pickle.load(open(os.path.join(work_dir, 'buffer.th'), 'rb'))
         Q = device(torch.load(os.path.join(work_dir, 'model_e%s.th' % args.load), map_location=torch.device(dev)))
         T = device(torch.load(os.path.join(work_dir, 'model_e%s.th' % args.load), map_location=torch.device(dev)))
 
@@ -144,9 +144,10 @@ def dqn(E, args, work_dir):
 
     print('init replay memory with %d entries' % args.mem_init_size)
     s = reset()
-    for _ in range(args.mem_init_size):
-        ns, _, done, _ = act(s, eps)
-        s = reset() if done else ns
+    if not args.load == '':
+        for _ in range(args.mem_init_size):
+            ns, _, done, _ = act(s, eps)
+            s = reset() if done else ns
 
     print('train, max episodes %d' % args.max_episodes)
     t = 0
@@ -161,7 +162,7 @@ def dqn(E, args, work_dir):
 
         if e % args.save_freq == 0:
             model_file = os.path.join(work_dir, 'model_e%d.th' % e)
-            buffer_file = os.path.join(work_dir, 'buffer_e%d.th' % e)
+            buffer_file = os.path.join(work_dir, 'buffer.th')
             with open(model_file, 'wb') as f:
                 torch.save(Q, f)
             with open(buffer_file, 'wb') as f:
