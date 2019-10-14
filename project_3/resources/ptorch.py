@@ -22,7 +22,6 @@ import torch.nn.functional as F
 import torchvision.transforms as T
 from torch.autograd import Variable
 
-
 EXP_DIR = 'exp'
 API_KEY = 'sk_ARsYZ2eRsGoeANVhUgrQ'
 ENVS = {
@@ -34,6 +33,17 @@ STATE_PREPFN = {
     'pong': lambda s: s[50:, :, :],
 }
 
+dev = "gpu"
+
+
+def device(func):
+    if dev == "cpu":
+        return func.cpu()
+    elif dev == "gpu":
+        return func.cuda()
+    else:
+        raise Exception("Error")
+
 
 def mkdir(base, name):
     path = os.path.join(base, name)
@@ -44,6 +54,7 @@ def mkdir(base, name):
 
 class ReplayMemory(object):
     """ Facilitates memory replay. """
+
     def __init__(self, capacity):
         self.capacity = capacity
         self.memory = []
@@ -57,11 +68,12 @@ class ReplayMemory(object):
 
     def sample(self, bsz):
         batch = random.sample(self.memory, bsz)
-        return map(lambda x: Variable(torch.cat(x, 0)), zip(*batch))
+        return map(lambda x: device(Variable(torch.cat(x, 0))), zip(*batch))
 
 
 class StatePrep(object):
     """ Preproces the state. """
+
     def __init__(self, prepfn, size):
         self.prepfn = prepfn
         self.transform = T.Compose([
@@ -96,10 +108,10 @@ def dqn(E, args, work_dir):
     A = np.arange(nA)
     mem = ReplayMemory(args.mem_capacity)
     prep = StatePrep(STATE_PREPFN[args.env], 84)
-    Q = QNet(nA)
-    T = QNet(nA)
+    Q = device(QNet(nA))
+    T = device(QNet(nA))
     opt = optim.RMSprop(Q.parameters(),
-        lr=0.00025, eps=0.001, alpha=0.95)
+                        lr=0.00025, eps=0.001, alpha=0.95)
     crit = nn.MSELoss()
 
     Q.train()
@@ -115,14 +127,15 @@ def dqn(E, args, work_dir):
 
     def act(s, eps):
         P.fill(eps / nA)
-        q, argq = Q(Variable(s, volatile=True)).data.cpu().max(1)
+        q, argq = Q(Variable(device(s), volatile=True)).data.cpu().max(1)
         P[argq[0].item()] += 1 - eps
         a = np.random.choice(A, p=P)
         ns, r, done, _ = E.step(a)
         ns = torch.cat([s.narrow(1, 1, 3), prep.run(ns)], 1)
         mem.push((s, torch.LongTensor([int(a)]),
-            torch.Tensor([r]), ns, torch.Tensor([done])))
+                  torch.Tensor([r]), ns, torch.Tensor([done])))
         return ns, r, done, q[0].item()
+
     print('init replay memory with %d entries' % args.mem_init_size)
     s = reset()
     for _ in range(args.mem_init_size):
@@ -172,7 +185,7 @@ def dqn(E, args, work_dir):
                 opt.zero_grad()
 
                 loss.backward()
-                #nn.utils.clip_grad_norm(Q.parameters(), args.clip)
+                # nn.utils.clip_grad_norm(Q.parameters(), args.clip)
                 opt.step()
 
         print('episode %d (%d): time %.2fs mem %d eps %.5f len %d r %.3f avg_r %.3f maxq %.3f avg_maxq %.3f' % (
@@ -214,7 +227,7 @@ def main():
     E.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    torch.set_default_tensor_type('torch.FloatTensor')
+    torch.set_default_tensor_type('torch.cuda.FloatTensor' if dev=="gpu" else 'torch.FloatTensor')
 
     if args.upload:
         E = wrappers.Monitor(E, monitor_dir, force=True)
