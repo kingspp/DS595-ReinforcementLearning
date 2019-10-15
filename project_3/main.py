@@ -8,18 +8,23 @@ def parse():
     parser.add_argument('--env_name', default=None, help='environment name')
     parser.add_argument('--train_dqn', action='store_true', help='whether train DQN')
     parser.add_argument('--test_dqn', action='store_true', help='whether test DQN')
-    parser.add_argument('--mem_init_size', type=int, default=5000)
-    parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--capacity', type=int, default=10000)
+    parser.add_argument('--max_episodes', type=int, default=10000)
     parser.add_argument('--gamma', type=float, default=0.99)
-    parser.add_argument('--eps', type=float, default=1.0)
+    parser.add_argument('--eps', type=float, default=0.99)
     parser.add_argument('--eps_decay_window', type=int, default=1000000)
     parser.add_argument('--eps_min', type=float, default=0.1)
-    parser.add_argument('--model_load_path', type=str, default='')
-    parser.add_argument('--target_update', type=int, default=5000)
     parser.add_argument('--window', type=int, default=100)
-    parser.add_argument('--max_episodes', type=int, default=10000)
+    parser.add_argument('--capacity', type=int, default=50000)
+    parser.add_argument('--mem_init_size', type=int, default=5000)
+    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--target_update', type=int, default=10000)
     parser.add_argument('--learn_freq', type=int, default=4)
+    parser.add_argument('--gc_freq', type=int, default=100)
+    parser.add_argument('--model_load_path', type=str, default='')
+
+
+
+
     parser.add_argument('--device', type=str, default='cpu')
 
 

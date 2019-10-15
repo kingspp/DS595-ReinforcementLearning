@@ -140,6 +140,8 @@ def dqn(E, args, work_dir):
         ns = torch.cat([s.narrow(1, 1, 3), prep.run(ns)], 1)
         mem.push((s, torch.LongTensor([int(a)]),
                   torch.Tensor([r]), ns, torch.Tensor([done])))
+        print(done, torch.Tensor([done]))
+        exit()
         return ns, r, done, q[0].item()
 
     print('init replay memory with %d entries' % args.mem_init_size)
