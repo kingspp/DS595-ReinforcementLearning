@@ -200,10 +200,10 @@ class Agent_DQN(Agent):
         """
         ###########################
         # YOUR IMPLEMENTATION HERE #
-        # batch = random.sample(self.memory, batch_size)
+        batch = random.sample(self.memory, batch_size)
         ###########################
-        return random.sample(self.memory, batch_size)
-        # return map(lambda x: Variable(torch.cat(x, 0)), zip(*batch))
+        # return random.sample(self.memory, batch_size)
+        return map(lambda x: Variable(torch.cat(x, 0)), zip(*batch))
 
     def optimize_model(self):
         # print(len(self.memory), self.args.capacity)
