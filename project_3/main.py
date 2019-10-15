@@ -1,7 +1,7 @@
 import argparse
 from test import test
 from environment import Environment
-
+import torch
 
 def parse():
     parser = argparse.ArgumentParser(description="DS595/CS525 RL Project 3")
@@ -21,6 +21,9 @@ def parse():
     parser.add_argument('--window', type=int, default=100)
     parser.add_argument('--max_episodes', type=int, default=10000)
     parser.add_argument('--learn_freq', type=int, default=4)
+    parser.add_argument('--device', type=str, default='cpu')
+
+
 
 
     try:
@@ -30,6 +33,7 @@ def parse():
         pass
     args = parser.parse_args()
 
+    torch.set_default_tensor_type('torch.cuda.FloatTensor' if args.device == "cuda" else 'torch.FloatTensor')
 
 
 

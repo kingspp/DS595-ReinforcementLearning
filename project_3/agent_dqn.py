@@ -102,6 +102,14 @@ class Agent_DQN(Agent):
 
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
+    def device(self, func):
+        if self.args.device == "cpu":
+            return func.cpu()
+        elif self.args.device == "gpu":
+            return func.cuda()
+        else:
+            raise Exception("Error")
+
     def init_game_setting(self):
         """
         Testing function will call this function at the begining of new game
