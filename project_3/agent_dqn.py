@@ -17,6 +17,7 @@ from dqn_model import DQN
 import time
 import torchvision.transforms as T
 from torch.autograd import Variable
+import json
 
 """
 you can import any package and define any extra function as you need
@@ -33,19 +34,44 @@ EPS_END = 0.05
 EPS_DECAY = 200
 TARGET_UPDATE = 10
 
-class StatePrep(object):
-    """ Preproces the state. """
 
-    def __init__(self, prepfn, size):
-        self.prepfn = prepfn
-        self.transform = T.Compose([
-            T.ToPILImage(),
-            T.Lambda(lambda x: x.convert('L')),
-            T.Scale(size, interpolation=3),
-            T.ToTensor()])
+class JsonEncoder(json.JSONEncoder):
+    """ Special json encoder for numpy types """
 
-    def run(self, s):
-        return self.transform(self.prepfn(s)).unsqueeze(0)
+    def default(self, obj):
+        if isinstance(obj, (np.int_, np.intc, np.intp, np.int8,
+                            np.int16, np.int32, np.int64, np.uint8,
+                            np.uint16, np.uint32, np.uint64)):
+            return int(obj)
+        elif isinstance(obj, (np.float_, np.float16, np.float32,
+                              np.float64)):
+            return float(obj)
+        elif isinstance(obj, (np.ndarray,)):
+            return obj.tolist()
+        elif isinstance(obj, set):
+            return list(obj)
+        else:
+            try:
+                return obj.default()
+            except Exception:
+                return f'Object not serializable - {obj}'
+
+
+class MetaData(object):
+    def __init__(self):
+        self.transition = namedtuple('Data',
+                                     ("episode", "step", "ep_len", "eps", "reward", "avg_reward", "max_q", "max_avg_q",
+                                      "loss", "avg_loss", "mode"))
+        self.data = None
+
+    def update(self, *args):
+        self.data = self.transition(*args)
+
+    def load(self, f):
+        self.data = self.transition(*json.load(f).values())
+
+    def dump(self, f):
+        return json.dump(self.data._asdict(), f, cls=JsonEncoder, indent=2)
 
 
 class Agent_DQN(Agent):
@@ -76,10 +102,10 @@ class Agent_DQN(Agent):
         self.t = 0
         self.ep_len = 0
         self.mode = None
+        self.meta = MetaData()
 
         torch.set_default_tensor_type('torch.cuda.FloatTensor' if self.args.device == "cuda" else 'torch.FloatTensor')
         print(torch.get_default_dtype())
-        self.prep = StatePrep(lambda s: s[50:, :, :], 84)
 
         self.dummy_input = torch.zeros((1, self.nA))
         self.dummy_batch = torch.zeros((self.args.batch_size, self.nA))
@@ -133,7 +159,7 @@ class Agent_DQN(Agent):
         ###########################
         pass
 
-    def make_action(self, observation, cur_eps, test=True):
+    def make_action(self, observation, test=True):
         """
         Return predicted action of your agent
         Input:
@@ -145,22 +171,12 @@ class Agent_DQN(Agent):
         """
         ###########################
         # YOUR IMPLEMENTATION HERE #
-        # print("**********" * 25)
         with torch.no_grad():
-            # print(self.P)
-            self.P.fill(cur_eps / self.nA)
-            # print(self.P)
+            self.P.fill(self.cur_eps / self.nA)
             q, argq = self.policy_net(Variable(observation)).data.cpu().max(1)
-            self.P[argq[0].item()] += 1 - cur_eps
-            # print(argq[0].item(), 1-cur_eps)
-            # print(self.P)
-            # print(self.A)
+            self.P[argq[0].item()] += 1 - self.cur_eps
             action = torch.tensor([np.random.choice(self.A, p=self.P)])
         ###########################
-        # print(action, q)
-        # print("**********"*25, "\n\n")
-        # exit()
-
         return action, q
 
     def select_action(self, state):
@@ -176,7 +192,8 @@ class Agent_DQN(Agent):
                 # found, so we pick action with the larger expected reward.
                 return self.policy_net(state).max(1)[1].view(1, 1), self.policy_net(state).max(1)[1]
         else:
-            return torch.tensor([[random.randrange(self.nA)]], device=self.args.device, dtype=torch.long), self.policy_net(state).max(1)[1]
+            return torch.tensor([[random.randrange(self.nA)]], device=self.args.device, dtype=torch.long), \
+                   self.policy_net(state).max(1)[1]
 
     def push(self, *args):
         """ You can add additional arguments as you need. 
@@ -279,6 +296,29 @@ class Agent_DQN(Agent):
             return tensor
         return torch.reshape(tensor, [1, 84, 84, 4]).permute(0, 3, 1, 2)
 
+    def save_model(self, i_episode):
+        if i_episode % self.args.save_freq == 0:
+            model_file = os.path.join(self.args.save_dir, f'model_e{i_episode}.th')
+            meta_file = os.path.join(self.args.save_dir, f'model_e{i_episode}.meta')
+            with open(model_file, 'wb') as f:
+                torch.save(self.policy_net, f)
+            with open(meta_file, 'w') as f:
+                self.meta.dump(f)
+
+    def collect_garbage(self, i_episode):
+        if i_episode % self.args.gc_freq == 0:
+            gc.collect()
+
+    def load_model(self):
+        print(f"Restoring model from {self.args.save_dir}/{self.args.load} . . . ")
+        self.policy_net = torch.load(os.path.join(self.args.save_dir, f'model_e{self.args.load}.th'),
+                                     map_location=torch.device(self.args.device)).to(self.args.device)
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.meta.load(open(os.path.join(self.args.save_dir, f'model_e{self.args.load}.meta')))
+        self.eps = self.meta.data.eps
+        self.t = self.meta.data.step
+        print(f"Model successfully restored.")
+
     def train(self):
         """
         Implement your training algorithm here
@@ -288,13 +328,12 @@ class Agent_DQN(Agent):
 
         self.eps = max(self.args.eps, self.args.eps_min)
         self.eps_delta = (self.eps - self.args.eps_min) / self.args.eps_decay_window
-
-        print("Initializing buffer . . .")
         self.t = 1
         self.eps = self.args.eps
         self.mode = "Random"
-        print("Buffer Initialized Successfully.")
-        for i_episode in range(self.args.max_episodes):
+        if not self.args.load == '':
+            self.load_model()
+        for i_episode in range(1, self.args.max_episodes + 1):
             # Initialize the environment and state
             start_time = time.time()
             state = self.reset(self.env.reset())
@@ -304,8 +343,8 @@ class Agent_DQN(Agent):
             self.ep_len = 0
             done = False
 
-            if i_episode % self.args.gc_freq == 0:
-                gc.collect()
+            self.collect_garbage(i_episode)
+            self.save_model(i_episode)
 
             while not done:
                 # Update the target network, copying all weights and biases in DQN
@@ -314,7 +353,7 @@ class Agent_DQN(Agent):
                     self.target_net.load_state_dict(self.policy_net.state_dict())
                 # Select and perform an action
                 self.cur_eps = max(self.args.eps_min, self.eps - self.eps_delta * self.t)
-                action, q = self.make_action(state, self.cur_eps)
+                action, q = self.make_action(state)
                 # action, q = self.select_action(state)
                 next_state, reward, done, _ = self.env.step(action.item())
                 next_state = self.reset(next_state)
@@ -336,10 +375,15 @@ class Agent_DQN(Agent):
                 if self.ep_len % self.args.learn_freq == 0:
                     loss = self.optimize_model()
                     self.L[i_episode % self.args.window] += loss
-
+            #  "episode","step","ep_len","eps", "reward", "avg_reward", "max_q", "max_avg_q", "loss", "avg_loss", "mode"
+            self.meta.update(i_episode, self.t, self.ep_len, self.cur_eps,
+                             self.R[i_episode % self.args.window], np.mean(self.R),
+                             self.M[i_episode % self.args.window], np.mean(self.M),
+                             self.L[i_episode % self.args.window], np.mean(self.L),
+                             self.mode)
             print(
                 f"Episode: {i_episode} ({self.t}) time: {time.time() - start_time:.2f} len: {self.ep_len} mem: {len(self.memory)}"
-                f" EPS: {self.cur_eps:.5f} R: {self.R[i_episode % self.args.window]:}, Avg_R: {np.mean(self.R):.3f}"
+                f" EPS: {self.cur_eps:.5f} R: {self.R[i_episode % self.args.window]}, Avg_R: {np.mean(self.R):.3f}"
                 f" Q: {self.M[i_episode % self.args.window]:.2f} Avg_Q:{np.mean(self.M):.2f}"
                 f" Loss: {self.L[i_episode % self.args.window]:.2f}, Avg_Loss: {np.mean(self.L):.4f} Mode: {self.mode}")
 

@@ -2,6 +2,7 @@ import argparse
 from test import test
 from environment import Environment
 import torch
+import os
 
 def parse():
     parser = argparse.ArgumentParser(description="DS595/CS525 RL Project 3")
@@ -20,15 +21,10 @@ def parse():
     parser.add_argument('--target_update', type=int, default=10000)
     parser.add_argument('--learn_freq', type=int, default=4)
     parser.add_argument('--gc_freq', type=int, default=100)
-    parser.add_argument('--model_load_path', type=str, default='')
-
-
-
-
+    parser.add_argument('--load', type=str, default='')
+    parser.add_argument('--save_freq', type=int, default=10)
+    parser.add_argument('--save_dir', type=str, default='checkpoint')
     parser.add_argument('--device', type=str, default='cpu')
-
-
-
 
     try:
         from argument import add_arguments
@@ -38,9 +34,7 @@ def parse():
     args = parser.parse_args()
 
     torch.set_default_tensor_type('torch.cuda.FloatTensor' if args.device == "cuda" else 'torch.FloatTensor')
-
-
-
+    os.system(f"mkdir -p {args.save_dir}")
     return args
 
 
