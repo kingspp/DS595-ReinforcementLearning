@@ -10,7 +10,6 @@ def parse():
     parser.add_argument('--test_dqn', action='store_true', help='whether test DQN')
     parser.add_argument('--mem_init_size', type=int, default=5000)
     parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--device', type=str, default='cpu')
     parser.add_argument('--capacity', type=int, default=10000)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--eps', type=float, default=1.0)
