@@ -25,7 +25,7 @@ from torch.autograd import Variable
 EXP_DIR = 'exp'
 API_KEY = 'sk_ARsYZ2eRsGoeANVhUgrQ'
 ENVS = {
-    'breakout': 'Breakout-v0',
+    'breakout': 'BreakoutNoFrameskip-v4',
     'pong': 'Pong-v0',
 }
 STATE_PREPFN = {
@@ -143,8 +143,10 @@ def dqn(E, args, work_dir):
         return ns, r, done, q[0].item()
 
     print('init replay memory with %d entries' % args.mem_init_size)
+
     s = reset()
-    if not args.load == '':
+
+    if args.load == '':
         for _ in range(args.mem_init_size):
             ns, _, done, _ = act(s, eps)
             s = reset() if done else ns
@@ -153,8 +155,10 @@ def dqn(E, args, work_dir):
     t = 0
     R = np.zeros(args.window, np.float32)
     M = np.zeros(args.window, np.float32)
+    L = np.zeros(args.window, np.float32)
     for e in range(args.max_episodes):
         R[e % args.window] = 0
+        L[e % args.window] = 0
         M[e % args.window] = -1e9
         s = reset()
         done = False
@@ -193,16 +197,17 @@ def dqn(E, args, work_dir):
                 bq = Q(bs).gather(1, ba.unsqueeze(1)).squeeze(1)
                 bnq = T(bns).detach().max(1)[0].squeeze(0) * args.gamma * (1 - bdone)
                 loss = crit(bq, br + bnq)
+                L[e % args.window] += loss.detach().numpy()
                 opt.zero_grad()
 
                 loss.backward()
                 # nn.utils.clip_grad_norm(Q.parameters(), args.clip)
                 opt.step()
 
-        print('episode %d (%d): time %.2fs mem %d eps %.5f len %d r %.3f avg_r %.3f maxq %.3f avg_maxq %.3f' % (
+        print('episode %d (%d): time %.2fs mem %d eps %.5f len %d r %.3f avg_r %.3f maxq %.3f avg_maxq %.3f loss %.3f' % (
             e, t, time.time() - start_time, len(mem.memory), cur_eps, ep_len,
             R[e % args.window], np.mean(R),
-            M[e % args.window], np.mean(M),
+            M[e % args.window], np.mean(M), L[e % args.window]
         ))
 
     return R
@@ -220,7 +225,7 @@ def main():
     parser.add_argument('--clip', type=float, default=1)
     parser.add_argument('--window', type=int, default=100)
     parser.add_argument('--mem_capacity', type=int, default=50000)
-    parser.add_argument('--mem_init_size', type=int, default=50000)
+    parser.add_argument('--mem_init_size', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--sync_period', type=int, default=10000)
     parser.add_argument('--learn_freq', type=int, default=4)
@@ -245,8 +250,8 @@ def main():
     torch.manual_seed(args.seed)
     torch.set_default_tensor_type('torch.cuda.FloatTensor' if dev == "gpu" else 'torch.FloatTensor')
 
-    if args.upload:
-        E = wrappers.Monitor(E, monitor_dir, force=True)
+    # if args.upload:
+    #     E = wrappers.Monitor(E, monitor_dir, force=True)
 
     dqn(E, args, work_dir)
 

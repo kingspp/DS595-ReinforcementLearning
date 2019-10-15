@@ -10,9 +10,12 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 import math
+from itertools import count
 from agent import Agent
 from dqn_model import DQN
+import time
 import torchvision.transforms as T
+from torch.autograd import Variable
 
 """
 you can import any package and define any extra function as you need
@@ -53,41 +56,47 @@ class Agent_DQN(Agent):
         super(Agent_DQN, self).__init__(env)
         ###########################
         # YOUR IMPLEMENTATION HERE #
-        self.capacity = args['capacity']
-        self.batch_size = args['batch_size']
-        self.device = args['device']
-        self.gamma = args['gamma']
-        self.eps_start = args['eps_start']
-        self.eps_end = args['eps_end']
-        self.eps_decay = args['eps_decay']
-        self.model_load_path = args['model_load_path']
+        self.args = args
+        self.steps_done = 0
         self.env = env
+        self.eps_threshold = None
+        self.nA = env.action_space.n
+        self.A = np.arange(self.nA)
+        self.R = np.zeros(args.window, np.float32)
+        self.M = np.zeros(args.window, np.float32)
+        self.L = np.zeros(args.window, np.float32)
+        self.cur_eps = None
+        self.t = 0
+        self.ep_len = 0
 
         self.prep = StatePrep(lambda s: s[50:, :, :], 84)
 
-        self.policy_net = DQN(env).to(self.device)
-        self.target_net = DQN(env).to(self.device)
+        self.dummy_input = torch.zeros((1, self.nA))
+        self.dummy_batch = torch.zeros((self.args.batch_size, self.nA))
+
+        self.policy_net = DQN(env).to(self.args.device)
+        self.target_net = DQN(env).to(self.args.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
-        self.optimizer = optim.Adam(self.policy_net.parameters())
+        self.optimizer = optim.RMSprop(self.policy_net.parameters(), lr=0.00025, eps=0.001, alpha=0.95)
 
         # Compute Huber loss
-        self.loss = F.smooth_l1_loss
+        self.loss = torch.nn.MSELoss()  # F.smooth_l1_loss #
 
         self.policy_net.train()
         self.target_net.eval()
 
-        self.P = np.zeros(env.nA, np.float32)
+        self.P = np.zeros(env.action_space.n, np.float32)
 
         self.memory = []
         self.position = 0
         self.transition = namedtuple('Transition',
-                                     ('state', 'action', 'next_state', 'reward'))
+                                     ('state', 'action', 'next_state', 'reward', 'done'))
 
         if args.test_dqn:
             # you can load your model here
             print('loading trained model')
-            self.policy_net.load_weights(self.model_load_path)
+            self.policy_net.load_weights(self.args.model_load_path)
             ###########################
             # YOUR IMPLEMENTATION HERE #
 
@@ -105,9 +114,45 @@ class Agent_DQN(Agent):
         ###########################
         pass
 
-    def make_action(self, observation, test=True):
+    # def make_action(self, observation, cur_eps, test=True):
+    #     """
+    #     Return predicted action of your agent
+    #     Input:
+    #         observation: np.array
+    #             stack 4 last preprocessed frames, shape: (84, 84, 4)
+    #     Return:
+    #         action: int
+    #             the predicted action from trained model
+    #     """
+    #     ###########################
+    #     # YOUR IMPLEMENTATION HERE #
+    #
+    #     sample = random.random()
+    #     self.eps_threshold = self.args.eps_min + (self.args.eps - self.args.eps_min) * \
+    #                          math.exp(-1. * self.steps_done / self.args.eps_decay_window)
+    #     self.steps_done += 1
+    #     if sample > self.eps_threshold:
+    #         with torch.no_grad():
+    #             # t.max(1) will return largest column value of each row.
+    #             # second column on max result is index of where max element was
+    #             # found, so we pick action with the larger expected reward.
+    #             pred = self.policy_net(observation).max(1)
+    #             action = pred[1].view(1, 1)
+    #             q = pred[0]
+    #     else:
+    #         action = torch.tensor([[random.randrange(self.env.action_space.n)]], device=self.args.device,
+    #                               dtype=torch.long)
+    #         q = torch.tensor([0])
+    #     # self.P.fill(cur_eps / self.nA)
+    #     # q, argq = self.policy_net(Variable(observation, volatile=True)).data.cpu().max(1)
+    #     # self.P[argq[0].item()] += 1 - cur_eps
+    #     # action = torch.tensor([np.random.choice(self.A, p=self.P)])
+    #     ###########################
+    #     return action, q
+
+    def make_action(self, observation, test=True, *args):
         """
-        Return predicted action of your agent
+        ***Add random action to avoid the testing model stucks under certain situation***
         Input:
             observation: np.array
                 stack 4 last preprocessed frames, shape: (84, 84, 4)
@@ -115,23 +160,27 @@ class Agent_DQN(Agent):
             action: int
                 the predicted action from trained model
         """
-        ###########################
-        # YOUR IMPLEMENTATION HERE #
-        global steps_done
-        sample = random.random()
-        eps_threshold = self.eps_end + (self.eps_start - self.eps_end) * \
-                        math.exp(-1. * steps_done / self.eps_decay)
-        steps_done += 1
-        if sample > eps_threshold:
-            with torch.no_grad():
-                # t.max(1) will return largest column value of each row.
-                # second column on max result is index of where max element was
-                # found, so we pick action with the larger expected reward.
-                action = self.policy_net(observation).max(1)[1].view(1, 1)
+        # print(self.policy_net(observation))
+        # print('obs:' , np.argmax(self.policy_net(observation).detach().numpy()))
+        # print(np.expand_dims(observation, axis=0).shape, self.dummy_input.shape)
+        # exit()
+
+        if not self.args.test_dqn:
+            if self.eps >= random.random() or self.t < self.args.mem_init_size:
+                action = torch.tensor(random.randrange(self.nA))
+            else:
+                action = self.policy_net(observation).max(1)[1].view(1, 1)#np.argmax(self.q_network.predict([np.expand_dims(observation, axis=0), self.dummy_input])[0])
+            # Anneal epsilon linearly over time
+            if self.eps > self.args.eps_min and self.t >= self.args.mem_init_size:
+                # print('Changing eps')
+                self.eps -= 0.025
         else:
-            action = torch.tensor([[random.randrange(self.env.nA)]], device=self.device, dtype=torch.long)
-        ###########################
-        return action
+            if 0.005 >= random.random():
+                action = torch.tensor(random.randrange(self.nA))
+            else:
+                action = self.policy_net(observation).max(1)[1].view(1, 1)#np.argmax(self.q_network.predict([np.expand_dims(observation, axis=0), self.dummy_input])[0])
+
+        return action, torch.tensor([0])
 
     def push(self, *args):
         """ You can add additional arguments as you need. 
@@ -143,10 +192,10 @@ class Agent_DQN(Agent):
         """
         ###########################
         # YOUR IMPLEMENTATION HERE #
-        if len(self.memory) < self.capacity:
+        if len(self.memory) < self.args.capacity:
             self.memory.append(None)
         self.memory[self.position] = self.transition(*args)
-        self.position = (self.position + 1) % self.capacity
+        self.position = (self.position + 1) % self.args.capacity
         ###########################
 
     def replay_buffer(self, batch_size):
@@ -155,14 +204,59 @@ class Agent_DQN(Agent):
         """
         ###########################
         # YOUR IMPLEMENTATION HERE #
-
+        # batch = random.sample(self.memory, batch_size)
         ###########################
         return random.sample(self.memory, batch_size)
+        # return map(lambda x: Variable(torch.cat(x, 0)), zip(*batch))
+
+    # def optimize_model(self):
+    #     # if len(self.memory) < self.args.batch_size:
+    #     #     return
+    #     # transitions = self.replay_buffer(self.args.batch_size)
+    #     # # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
+    #     # # detailed explanation). This converts batch-array of Transitions
+    #     # # to Transition of batch-arrays.
+    #     # batch = self.transition(*zip(*transitions))
+    #     # # Compute a mask of non-final states and concatenate the batch elements
+    #     # # (a final state would've been the one after which simulation ended)
+    #     # non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
+    #     #                                         batch.next_state)), device=self.args.device, dtype=torch.bool)
+    #     #
+    #     # non_final_next_states = torch.cat([s for s in batch.next_state if s is not None])
+    #     # state_batch = torch.cat(batch.state)
+    #     # action_batch = torch.cat(batch.action)
+    #     # reward_batch = torch.cat(batch.reward)
+    #
+    #     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
+    #     # columns of actions taken. These are the actions which would've been taken
+    #     # for each batch state according to policy_net
+    #     # state_action_values = self.policy_net(state_batch).gather(1, action_batch)
+    #
+    #     # Compute V(s_{t+1}) for all next states.
+    #     # Expected values of actions for non_final_next_states are computed based
+    #     # on the "older" target_net; selecting their best reward with max(1)[0].
+    #     # This is merged based on the mask, such that we'll have either the expected
+    #     # state value or 0 in case the state was final.
+    #     # next_state_values = torch.zeros(self.args.batch_size, device=self.args.device)
+    #     # next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach()
+    #     # Compute the expected Q values
+    #     # expected_state_action_values = (next_state_values * self.args.gamma) + reward_batch
+    #     bs, ba, bns, br, bdone = self.replay_buffer(self.args.batch_size)
+    #     bq = self.policy_net(bs).gather(1, ba.flatten().unsqueeze(1)).squeeze(1)
+    #     bnq = self.target_net(bns).detach().max(1)[0].squeeze(0) * self.args.gamma * (1 - bdone.float())
+    #
+    #     # Compute Huber loss
+    #     loss = self.loss(bq, br+bnq)
+    #     # Optimize the model
+    #     self.optimizer.zero_grad()
+    #     loss.backward()
+    #     # for param in self.policy_net.parameters():
+    #     #     param.grad.data.clamp_(-1, 1)
+    #     self.optimizer.step()
+    #     return loss
 
     def optimize_model(self):
-        if len(self.memory) < self.batch_size:
-            return
-        transitions = self.replay_buffer(self.batch_size)
+        transitions = self.replay_buffer(self.args.batch_size)
         # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
         # detailed explanation). This converts batch-array of Transitions
         # to Transition of batch-arrays.
@@ -171,7 +265,7 @@ class Agent_DQN(Agent):
         # Compute a mask of non-final states and concatenate the batch elements
         # (a final state would've been the one after which simulation ended)
         non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
-                                                batch.next_state)), device=self.device, dtype=torch.uint8)
+                                                batch.next_state)), device=self.args.device, dtype=torch.bool)
         non_final_next_states = torch.cat([s for s in batch.next_state
                                            if s is not None])
         state_batch = torch.cat(batch.state)
@@ -181,6 +275,8 @@ class Agent_DQN(Agent):
         # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
         # columns of actions taken. These are the actions which would've been taken
         # for each batch state according to policy_net
+
+        action_batch = torch.reshape(action_batch, [32, 1])
         state_action_values = self.policy_net(state_batch).gather(1, action_batch)
 
         # Compute V(s_{t+1}) for all next states.
@@ -188,13 +284,12 @@ class Agent_DQN(Agent):
         # on the "older" target_net; selecting their best reward with max(1)[0].
         # This is merged based on the mask, such that we'll have either the expected
         # state value or 0 in case the state was final.
-        next_state_values = torch.zeros(self.batch_size, device=self.device)
+        next_state_values = torch.zeros(self.args.batch_size, device=self.args.device)
         next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach()
         # Compute the expected Q values
-        expected_state_action_values = (next_state_values * self.gamma) + reward_batch
-
+        expected_state_action_values = (next_state_values * self.args.gamma) + reward_batch
         # Compute Huber loss
-        loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
+        loss = self.loss(state_action_values, expected_state_action_values.unsqueeze(1))
 
         # Optimize the model
         self.optimizer.zero_grad()
@@ -202,6 +297,10 @@ class Agent_DQN(Agent):
         for param in self.policy_net.parameters():
             param.grad.data.clamp_(-1, 1)
         self.optimizer.step()
+        return loss
+
+    def reset(self, state):
+        return torch.reshape(torch.tensor(state, dtype=torch.float32), [1, 84, 84, 4]).permute(0, 3, 1, 2)
 
     def train(self):
         """
@@ -209,41 +308,65 @@ class Agent_DQN(Agent):
         """
         ###########################
         # YOUR IMPLEMENTATION HERE #
-        num_episodes = 50
-        for i_episode in range(num_episodes):
-            # Initialize the environment and state
-            self.env.reset()
-            last_screen = get_screen()
-            current_screen = get_screen()
-            state = current_screen - last_screen
-            for t in count():
-                # Select and perform an action
-                action = select_action(state)
-                _, reward, done, _ = env.step(action.item())
-                reward = torch.tensor([reward], device=device)
 
-                # Observe new state
-                last_screen = current_screen
-                current_screen = get_screen()
-                if not done:
-                    next_state = current_screen - last_screen
-                else:
-                    next_state = None
+        self.eps = max(self.args.eps, self.args.eps_min)
+        self.eps_delta = (self.eps - self.args.eps_min) / self.args.eps_decay_window
+
+        print("Initializing buffer . . .")
+        state = self.reset(self.env.reset())
+        for _ in range(self.args.mem_init_size):
+            action, _ = self.make_action(state, self.eps)
+            next_state, reward, done, _ = self.env.step(action.item())
+            next_state = self.reset(next_state)
+            self.push(state, torch.tensor([int(action)]), next_state, torch.tensor([reward]), torch.tensor([done]))
+            state = self.reset(self.env.reset()) if done else next_state
+
+        self.t=0
+        self.eps = self.args.eps
+        print("Buffer Initialized Successfully.")
+        for i_episode in range(self.args.max_episodes):
+            # Initialize the environment and state
+            start_time = time.time()
+            state = self.reset(self.env.reset())
+            self.R[i_episode % self.args.window] = 0
+            self.L[i_episode % self.args.window] = 0
+            self.M[i_episode % self.args.window] = -1e9
+            self.ep_len = 0
+            done = False
+            while not done:
+                if self.t % self.args.target_update == 0:
+                    print("Updating target network . . .")
+                    self.target_net.load_state_dict(self.policy_net.state_dict())
+                # Select and perform an action
+                self.cur_eps = max(self.args.eps_min, self.eps - self.eps_delta * self.t)
+                action, q = self.make_action(self.reset(state), self.cur_eps)
+                next_state, reward, done, _ = self.env.step(action.item())
+                next_state = self.reset(next_state)
+                reward = torch.tensor([reward], device=self.args.device)
+                self.R[i_episode % self.args.window] += reward
+                self.M[i_episode % self.args.window] = max(self.M[i_episode % self.args.window], q[0].item())
+
+                self.t += 1
+                self.ep_len += 1
 
                 # Store the transition in memory
-                memory.push(state, action, next_state, reward)
+                self.push(state, torch.tensor([int(action)]), next_state, torch.tensor([reward]),
+                          torch.tensor([done]))
 
                 # Move to the next state
                 state = next_state
 
                 # Perform one step of the optimization (on the target network)
-                optimize_model()
-                if done:
-                    episode_durations.append(t + 1)
-                    plot_durations()
-                    break
-            # Update the target network, copying all weights and biases in DQN
-            if i_episode % TARGET_UPDATE == 0:
-                target_net.load_state_dict(policy_net.state_dict())
+                if self.ep_len % self.args.learn_freq == 0:
+                    loss = self.optimize_model()
+                    self.L[i_episode % self.args.window] += loss.detach().numpy()
+
+                # Update the target network, copying all weights and biases in DQN
+
+            print(
+                f"Episode: {i_episode} ({self.t}) time: {time.time() - start_time:.2f} len: {self.ep_len} mem: {len(self.memory)}"
+                f" EPS: {self.eps:.5f} R: {self.R[i_episode % self.args.window]:}, Avg_R: {np.mean(self.R):.3f}"
+                f" Q: {self.M[i_episode % self.args.window]:.2f} Avg_Q:{np.mean(self.M):.2f}"
+                f" Loss: {self.L[i_episode % self.args.window]:.2f}, Avg_Loss: {np.mean(self.L):.4f}")
 
         ###########################
