@@ -77,6 +77,7 @@ class Agent_DQN(Agent):
         self.policy_net = DQN(env).to(self.args.device)
         self.target_net = DQN(env).to(self.args.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.epsilon_step = (self.args.eps - self.args.eps_min) / self.args.eps_decay_window
 
         self.optimizer = optim.RMSprop(self.policy_net.parameters(), lr=0.00025, eps=0.001, alpha=0.95)
 
@@ -181,7 +182,7 @@ class Agent_DQN(Agent):
             # Anneal epsilon linearly over time
             if self.eps > self.args.eps_min and self.t >= self.args.mem_init_size:
                 # print('Changing eps')
-                self.eps -= 0.025
+                self.eps -=self.epsilon_step
         else:
             if 0.005 >= random.random():
                 action = torch.tensor(random.randrange(self.nA))
