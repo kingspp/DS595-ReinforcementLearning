@@ -367,7 +367,7 @@ class Agent_DQN(Agent):
                 # Perform one step of the optimization (on the target network)
                 if self.ep_len % self.args.learn_freq == 0:
                     loss = self.optimize_model()
-                    self.L[i_episode % self.args.window] += loss.detach().numpy()
+                    self.L[i_episode % self.args.window] += loss.cpu().detach().numpy()
 
                 # Update the target network, copying all weights and biases in DQN
 
