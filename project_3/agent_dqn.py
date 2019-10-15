@@ -26,6 +26,12 @@ torch.manual_seed(595)
 np.random.seed(595)
 random.seed(595)
 
+BATCH_SIZE = 128
+GAMMA = 0.999
+EPS_START = 0.9
+EPS_END = 0.05
+EPS_DECAY = 200
+TARGET_UPDATE = 10
 
 class StatePrep(object):
     """ Preproces the state. """
@@ -157,33 +163,20 @@ class Agent_DQN(Agent):
 
         return action, q
 
-    # def make_action(self, observation, test=True, *args):
-    #     """
-    #     ***Add random action to avoid the testing model stucks under certain situation***
-    #     Input:
-    #         observation: np.array
-    #             stack 4 last preprocessed frames, shape: (84, 84, 4)
-    #     Return:
-    #         action: int
-    #             the predicted action from trained model
-    #     """
-    #
-    #     if not self.args.test_dqn:
-    #         if self.eps >= random.random() or self.t < self.args.mem_init_size:
-    #             action = torch.tensor(random.randrange(self.nA))
-    #         else:
-    #             action = self.policy_net(observation).max(1)[1].view(1, 1)#np.argmax(self.q_network.predict([np.expand_dims(observation, axis=0), self.dummy_input])[0])
-    #         # Anneal epsilon linearly over time
-    #         if self.eps > self.args.eps_min and self.t >= self.args.mem_init_size:
-    #             # print('Changing eps')
-    #             self.eps -=self.epsilon_step
-    #     else:
-    #         if 0.005 >= random.random():
-    #             action = torch.tensor(random.randrange(self.nA))
-    #         else:
-    #             action = self.policy_net(observation).max(1)[1].view(1, 1)#np.argmax(self.q_network.predict([np.expand_dims(observation, axis=0), self.dummy_input])[0])
-    #
-    #     return action, torch.tensor([0])
+    def select_action(self, state):
+        global steps_done
+        sample = random.random()
+        eps_threshold = EPS_END + (EPS_START - EPS_END) * \
+                        math.exp(-1. * self.t / EPS_DECAY)
+        self.t += 1
+        if sample > eps_threshold:
+            with torch.no_grad():
+                # t.max(1) will return largest column value of each row.
+                # second column on max result is index of where max element was
+                # found, so we pick action with the larger expected reward.
+                return self.policy_net(state).max(1)[1].view(1, 1), self.policy_net(state).max(1)[1]
+        else:
+            return torch.tensor([[random.randrange(self.nA)]], device=self.args.device, dtype=torch.long), self.policy_net(state).max(1)[1]
 
     def push(self, *args):
         """ You can add additional arguments as you need. 
@@ -207,10 +200,10 @@ class Agent_DQN(Agent):
         """
         ###########################
         # YOUR IMPLEMENTATION HERE #
-        batch = random.sample(self.memory, batch_size)
+        # batch = random.sample(self.memory, batch_size)
         ###########################
-        # return random.sample(self.memory, batch_size)
-        return map(lambda x: Variable(torch.cat(x, 0)), zip(*batch))
+        return random.sample(self.memory, batch_size)
+        # return map(lambda x: Variable(torch.cat(x, 0)), zip(*batch))
 
     def optimize_model(self):
         # print(len(self.memory), self.args.capacity)
@@ -233,6 +226,9 @@ class Agent_DQN(Agent):
         return loss.cpu().detach().numpy()
 
     # def optimize_model(self):
+    #     if len(self.memory) < self.args.mem_init_size:
+    #         return 0
+    #     self.mode = "Explore"
     #     transitions = self.replay_buffer(self.args.batch_size)
     #     # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
     #     # detailed explanation). This converts batch-array of Transitions
@@ -277,7 +273,11 @@ class Agent_DQN(Agent):
     #     return loss
 
     def reset(self, state):
-        return torch.reshape(torch.tensor(state, dtype=torch.float32), [1, 84, 84, 4]).permute(0, 3, 1, 2)
+        tensor = torch.tensor(state, dtype=torch.float32)
+        if tensor.shape[1] == 4:
+            print("Tensor shape is already 4")
+            return tensor
+        return torch.reshape(tensor, [1, 84, 84, 4]).permute(0, 3, 1, 2)
 
     def train(self):
         """
@@ -290,34 +290,6 @@ class Agent_DQN(Agent):
         self.eps_delta = (self.eps - self.args.eps_min) / self.args.eps_decay_window
 
         print("Initializing buffer . . .")
-        # state = self.reset(self.env.reset())
-        # for i_episode in range(self.args.mem_init_size):
-        #     done = False
-        #     state = self.reset(self.env.reset())
-        #     start_time = time.time()
-        #     self.R[i_episode % self.args.window] = 0
-        #     self.L[i_episode % self.args.window] = 0
-        #     self.M[i_episode % self.args.window] = -1e9
-        #     self.ep_len= 0
-        #     while not done:
-        #         action, q = self.make_action(state, self.eps)
-        #         next_state, reward, done, _ = self.env.step(action.item())
-        #         next_state = self.reset(next_state)
-        #         self.push(state, torch.tensor([int(action)]), next_state, torch.tensor([reward]),
-        #                   torch.tensor([done], dtype=torch.float32))
-        #         state = next_state
-        #         self.ep_len+=1
-        #         self.t+=1
-        #         self.R[i_episode % self.args.window] += reward
-        #         self.M[i_episode % self.args.window] = max(self.M[i_episode % self.args.window], q[0].item())
-        #     print( f"Episode: {i_episode} ({self.t}) time: {time.time() - start_time:.2f} len: {self.ep_len} mem: {len(self.memory)}"
-        #            f" R: {self.R[i_episode % self.args.window]:}, Avg_R: {np.mean(self.R):.3f} Mode: Random")
-        # print(
-        #     f"Episode: {i_episode} ({self.t}) time: {time.time() - start_time:.2f} len: {self.ep_len} mem: {len(self.memory)}"
-        #     f" EPS: {self.cur_eps:.5f} R: {self.R[i_episode % self.args.window]:}, Avg_R: {np.mean(self.R):.3f}"
-        #     f" Q: {self.M[i_episode % self.args.window]:.2f} Avg_Q:{np.mean(self.M):.2f}"
-        #     f" Loss: {self.L[i_episode % self.args.window]:.2f}, Avg_Loss: {np.mean(self.L):.4f} Mode: Random")
-
         self.t = 1
         self.eps = self.args.eps
         self.mode = "Random"
@@ -342,7 +314,8 @@ class Agent_DQN(Agent):
                     self.target_net.load_state_dict(self.policy_net.state_dict())
                 # Select and perform an action
                 self.cur_eps = max(self.args.eps_min, self.eps - self.eps_delta * self.t)
-                action, q = self.make_action(self.reset(state), self.cur_eps)
+                action, q = self.make_action(state, self.cur_eps)
+                # action, q = self.select_action(state)
                 next_state, reward, done, _ = self.env.step(action.item())
                 next_state = self.reset(next_state)
                 reward = torch.tensor([reward], device=self.args.device)

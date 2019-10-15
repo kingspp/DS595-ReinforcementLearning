@@ -206,7 +206,7 @@ def dqn(E, args, work_dir):
                 # nn.utils.clip_grad_norm(Q.parameters(), args.clip)
                 opt.step()
 
-        print('episode %d (%d): time %.2fs mem %d eps %.5f len %d r %.3f avg_r %.3f maxq %.3f avg_maxq %.3f loss %.3f' % (
+        print('episode %d (%d) | time %.2fs | mem %d | eps %.5f | len %d | r %.3f | avg_r %.3f | maxq %.3f | avg_maxq %.3f | loss %.3f' % (
             e, t, time.time() - start_time, len(mem.memory), cur_eps, ep_len,
             R[e % args.window], np.mean(R),
             M[e % args.window], np.mean(M), L[e % args.window]

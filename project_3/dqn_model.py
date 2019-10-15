@@ -27,9 +27,9 @@ class DQN(nn.Module):
         self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
         self.bn1 = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
-        self.bn1 = nn.BatchNorm2d(64)
+        self.bn2 = nn.BatchNorm2d(64)
         self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
-        self.bn1 = nn.BatchNorm2d(64)
+        self.bn3 = nn.BatchNorm2d(64)
         self.fc1 = nn.Linear(7 * 7 * 64, 512)
         self.fc2 = nn.Linear(512, env.action_space.n)
 
