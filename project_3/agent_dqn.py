@@ -83,10 +83,10 @@ class Agent_DQN(Agent):
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.epsilon_step = (self.args.eps - self.args.eps_min) / self.args.eps_decay_window
 
-        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=0.00025, eps=0.001)
+        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=1.5e-4, eps=0.001)
 
         # Compute Huber loss
-        self.loss =  F.smooth_l1_loss #
+        self.loss = F.smooth_l1_loss  #
 
         self.policy_net.train()
         self.target_net.eval()
@@ -312,12 +312,11 @@ class Agent_DQN(Agent):
         #         self.M[i_episode % self.args.window] = max(self.M[i_episode % self.args.window], q[0].item())
         #     print( f"Episode: {i_episode} ({self.t}) time: {time.time() - start_time:.2f} len: {self.ep_len} mem: {len(self.memory)}"
         #            f" R: {self.R[i_episode % self.args.window]:}, Avg_R: {np.mean(self.R):.3f} Mode: Random")
-                # print(
-                #     f"Episode: {i_episode} ({self.t}) time: {time.time() - start_time:.2f} len: {self.ep_len} mem: {len(self.memory)}"
-                #     f" EPS: {self.cur_eps:.5f} R: {self.R[i_episode % self.args.window]:}, Avg_R: {np.mean(self.R):.3f}"
-                #     f" Q: {self.M[i_episode % self.args.window]:.2f} Avg_Q:{np.mean(self.M):.2f}"
-                #     f" Loss: {self.L[i_episode % self.args.window]:.2f}, Avg_Loss: {np.mean(self.L):.4f} Mode: Random")
-
+        # print(
+        #     f"Episode: {i_episode} ({self.t}) time: {time.time() - start_time:.2f} len: {self.ep_len} mem: {len(self.memory)}"
+        #     f" EPS: {self.cur_eps:.5f} R: {self.R[i_episode % self.args.window]:}, Avg_R: {np.mean(self.R):.3f}"
+        #     f" Q: {self.M[i_episode % self.args.window]:.2f} Avg_Q:{np.mean(self.M):.2f}"
+        #     f" Loss: {self.L[i_episode % self.args.window]:.2f}, Avg_Loss: {np.mean(self.L):.4f} Mode: Random")
 
         self.t = 1
         self.eps = self.args.eps
