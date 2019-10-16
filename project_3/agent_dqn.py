@@ -4,8 +4,6 @@ import random
 import numpy as np
 from collections import deque, namedtuple
 import os
-import sys
-
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
@@ -15,7 +13,6 @@ import gc
 from agent import Agent
 from dqn_model import DQN
 import time
-import torchvision.transforms as T
 from torch.autograd import Variable
 import json
 import uuid
@@ -233,10 +230,8 @@ class Agent_DQN(Agent):
         return map(lambda x: Variable(torch.cat(x, 0)), zip(*batch))
 
     def optimize_model(self):
-        # print(len(self.memory), self.args.capacity)
         if len(self.memory) < self.args.mem_init_size:
             return 0
-
         self.mode = "Explore"
         bs, ba, bns, br, bdone = self.replay_buffer(self.args.batch_size)
         bq = self.policy_net(bs).gather(1, ba.unsqueeze(1)).squeeze(1)
@@ -261,9 +256,9 @@ class Agent_DQN(Agent):
 
     def save_model(self, i_episode):
         if i_episode % self.args.save_freq == 0:
-            print("Saving model . . .")
             model_file = os.path.join(self.args.save_dir, f'model_e{i_episode}.th')
             meta_file = os.path.join(self.args.save_dir, f'model_e{i_episode}.meta')
+            print(f"Saving model at {model_file}")
             with open(model_file, 'wb') as f:
                 torch.save(self.policy_net, f)
             with open(meta_file, 'w') as f:
@@ -350,11 +345,5 @@ class Agent_DQN(Agent):
                              self.M[i_episode % self.args.window], np.mean(self.M),
                              self.L[i_episode % self.args.window], np.mean(self.L),
                              self.mode)
-
-            # print(
-            #     f"Episode: {i_episode} |  Step: ({self.t}) | time: {time.time() - start_time:.2f} len: {self.ep_len} mem: {len(self.memory)}"
-            #     f" | EPS: {self.cur_eps:.5f} R: {self.R[i_episode % self.args.window]}, Avg_R: {np.mean(self.R):.3f}"
-            #     f" | Q: {self.M[i_episode % self.args.window]:.2f} Avg_Q:{np.mean(self.M):.2f}"
-            #     f" Loss: {self.L[i_episode % self.args.window]:.2f} | Avg_Loss: {np.mean(self.L):.4f} | Mode: {self.mode}")
 
         ###########################
