@@ -270,11 +270,11 @@ class Agent_DQN(Agent):
             gc.collect()
 
     def load_model(self):
-        print(f"Restoring model from {self.args.save_dir}/{self.args.load} . . . ")
-        self.policy_net = torch.load(os.path.join(self.args.save_dir, f'model_e{self.args.load}.th'),
+        print(f"Restoring model from {self.args.load} . . . ")
+        self.policy_net = torch.load(os.path.join(self.args.save_dir, self.args.load),
                                      map_location=torch.device(self.args.device)).to(self.args.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
-        self.meta.load(open(os.path.join(self.args.save_dir, f'model_e{self.args.load}.meta')))
+        self.meta.load(open(os.path.join(self.args.save_dir, self.args.load.replace('.th', '.meta'))))
         self.eps = self.meta.data.eps
         self.t = self.meta.data.step
         print(f"Model successfully restored.")
