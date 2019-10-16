@@ -23,6 +23,7 @@ def parse():
     parser.add_argument('--gc_freq', type=int, default=1000)
     parser.add_argument('--load', type=str, default='')
     parser.add_argument('--save_freq', type=int, default=1000)
+    parser.add_argument('--disp_freq', type=int, default=100)
     parser.add_argument('--save_dir', type=str, default='checkpoint')
     parser.add_argument('--device', type=str, default='cpu')
 
@@ -34,7 +35,6 @@ def parse():
     args = parser.parse_args()
 
     torch.set_default_tensor_type('torch.cuda.FloatTensor' if args.device == "cuda" else 'torch.FloatTensor')
-    os.system(f"mkdir -p {args.save_dir}")
     return args
 
 

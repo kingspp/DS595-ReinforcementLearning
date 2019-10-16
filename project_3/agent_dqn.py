@@ -18,6 +18,7 @@ import time
 import torchvision.transforms as T
 from torch.autograd import Variable
 import json
+import uuid
 
 """
 you can import any package and define any extra function as you need
@@ -58,14 +59,25 @@ class JsonEncoder(json.JSONEncoder):
 
 
 class MetaData(object):
-    def __init__(self):
+    def __init__(self, fp, args):
         self.transition = namedtuple('Data',
-                                     ("episode", "step", "ep_len", "eps", "reward", "avg_reward", "max_q", "max_avg_q",
-                                      "loss", "avg_loss", "mode"))
+                                     (
+                                         "episode", "step", "time", "time_elapsed", "ep_len", "buffer_len", "epsilon",
+                                         "reward",
+                                         "avg_reward", "max_q", "max_avg_q",
+                                         "loss", "avg_loss", "mode"))
+        self.fp = fp
         self.data = None
+        self.args = args
 
     def update(self, *args):
         self.data = self.transition(*args)
+        if self.data.episode % self.args.disp_freq == 0:
+            print(
+                f"E: {self.data.episode} |  Step: {self.data.step} | T: {self.data.time:.2f} | ET: {self.data.time_elapsed:.2f}"
+                f" | Len: {self.data.ep_len} | EPS: {self.data.epsilon:.5f} | R: {self.data.reward} | AR: {self.data.avg_reward:.3f}"
+                f" | MAQ:{self.data.max_avg_q:.2f} | L: {self.data.loss:.2f} | AL: {self.data.avg_loss:.4f} | Mode: {self.data.mode}")
+        self.fp.write(self.data._asdict().values().__str__().replace('odict_values([', '').replace('])', '' + '\n'))
 
     def load(self, f):
         self.data = self.transition(*json.load(f).values())
@@ -89,6 +101,7 @@ class Agent_DQN(Agent):
         super(Agent_DQN, self).__init__(env)
         ###########################
         # YOUR IMPLEMENTATION HERE #
+        self.exp_id = uuid.uuid4().__str__().replace('-', '_')
         self.args = args
         self.steps_done = 0
         self.env = env
@@ -102,14 +115,6 @@ class Agent_DQN(Agent):
         self.t = 0
         self.ep_len = 0
         self.mode = None
-        self.meta = MetaData()
-
-        torch.set_default_tensor_type('torch.cuda.FloatTensor' if self.args.device == "cuda" else 'torch.FloatTensor')
-        print(torch.get_default_dtype())
-
-        self.dummy_input = torch.zeros((1, self.nA))
-        self.dummy_batch = torch.zeros((self.args.batch_size, self.nA))
-
         self.policy_net = DQN(env).to(self.args.device)
         self.target_net = DQN(env).to(self.args.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
@@ -129,6 +134,11 @@ class Agent_DQN(Agent):
         self.position = 0
         self.transition = namedtuple('Transition',
                                      ('state', 'action', 'next_state', 'reward', 'done'))
+
+        self.args.save_dir += f'/{self.exp_id}/'
+        os.system(f"mkdir -p {self.args.save_dir}")
+        self.meta = MetaData(fp=open(os.path.join(self.args.save_dir, 'result.csv'), 'w'), args=self.args)
+
 
         if args.test_dqn:
             # you can load your model here
@@ -242,53 +252,6 @@ class Agent_DQN(Agent):
         self.optimizer.step()
         return loss.cpu().detach().numpy()
 
-    # def optimize_model(self):
-    #     if len(self.memory) < self.args.mem_init_size:
-    #         return 0
-    #     self.mode = "Explore"
-    #     transitions = self.replay_buffer(self.args.batch_size)
-    #     # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
-    #     # detailed explanation). This converts batch-array of Transitions
-    #     # to Transition of batch-arrays.
-    #     batch = self.transition(*zip(*transitions))
-    #
-    #     # Compute a mask of non-final states and concatenate the batch elements
-    #     # (a final state would've been the one after which simulation ended)
-    #     non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
-    #                                             batch.next_state)), device=self.args.device, dtype=torch.bool)
-    #     non_final_next_states = torch.cat([s for s in batch.next_state
-    #                                        if s is not None])
-    #     state_batch = torch.cat(batch.state)
-    #     action_batch = torch.cat(batch.action)
-    #     reward_batch = torch.cat(batch.reward)
-    #
-    #     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
-    #     # columns of actions taken. These are the actions which would've been taken
-    #     # for each batch state according to policy_net
-    #
-    #     action_batch = torch.reshape(action_batch, [32, 1])
-    #     state_action_values = self.policy_net(state_batch).gather(1, action_batch)
-    #
-    #     # Compute V(s_{t+1}) for all next states.
-    #     # Expected values of actions for non_final_next_states are computed based
-    #     # on the "older" target_net; selecting their best reward with max(1)[0].
-    #     # This is merged based on the mask, such that we'll have either the expected
-    #     # state value or 0 in case the state was final.
-    #     next_state_values = torch.zeros(self.args.batch_size, device=self.args.device)
-    #     next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach()
-    #     # Compute the expected Q values
-    #     expected_state_action_values = (next_state_values * self.args.gamma) + reward_batch
-    #     # Compute Huber loss
-    #     loss = self.loss(state_action_values, expected_state_action_values.unsqueeze(1))
-    #
-    #     # Optimize the model
-    #     self.optimizer.zero_grad()
-    #     loss.backward()
-    #     for param in self.policy_net.parameters():
-    #         param.grad.data.clamp_(-1, 1)
-    #     self.optimizer.step()
-    #     return loss
-
     def reset(self, state):
         tensor = torch.tensor(state, dtype=torch.float32)
         if tensor.shape[1] == 4:
@@ -298,6 +261,7 @@ class Agent_DQN(Agent):
 
     def save_model(self, i_episode):
         if i_episode % self.args.save_freq == 0:
+            print("Saving model . . .")
             model_file = os.path.join(self.args.save_dir, f'model_e{i_episode}.th')
             meta_file = os.path.join(self.args.save_dir, f'model_e{i_episode}.meta')
             with open(model_file, 'wb') as f:
@@ -307,6 +271,7 @@ class Agent_DQN(Agent):
 
     def collect_garbage(self, i_episode):
         if i_episode % self.args.gc_freq == 0:
+            print("Executing garbage collector . . .")
             gc.collect()
 
     def load_model(self):
@@ -331,6 +296,7 @@ class Agent_DQN(Agent):
         self.t = 1
         self.eps = self.args.eps
         self.mode = "Random"
+        train_start = time.time()
         if not self.args.load == '':
             self.load_model()
         for i_episode in range(1, self.args.max_episodes + 1):
@@ -353,6 +319,8 @@ class Agent_DQN(Agent):
                     self.target_net.load_state_dict(self.policy_net.state_dict())
                 # Select and perform an action
                 self.cur_eps = max(self.args.eps_min, self.eps - self.eps_delta * self.t)
+                if self.cur_eps==self.args.eps_min:
+                    self.mode = 'Exploit'
                 action, q = self.make_action(state)
                 # action, q = self.select_action(state)
                 next_state, reward, done, _ = self.env.step(action.item())
@@ -375,16 +343,18 @@ class Agent_DQN(Agent):
                 if self.ep_len % self.args.learn_freq == 0:
                     loss = self.optimize_model()
                     self.L[i_episode % self.args.window] += loss
-            #  "episode","step","ep_len","eps", "reward", "avg_reward", "max_q", "max_avg_q", "loss", "avg_loss", "mode"
-            self.meta.update(i_episode, self.t, self.ep_len, self.cur_eps,
+
+            self.meta.update(i_episode, self.t, time.time() - start_time, time.time() - train_start,
+                             self.ep_len, len(self.memory), self.cur_eps,
                              self.R[i_episode % self.args.window], np.mean(self.R),
                              self.M[i_episode % self.args.window], np.mean(self.M),
                              self.L[i_episode % self.args.window], np.mean(self.L),
                              self.mode)
-            print(
-                f"Episode: {i_episode} ({self.t}) time: {time.time() - start_time:.2f} len: {self.ep_len} mem: {len(self.memory)}"
-                f" EPS: {self.cur_eps:.5f} R: {self.R[i_episode % self.args.window]}, Avg_R: {np.mean(self.R):.3f}"
-                f" Q: {self.M[i_episode % self.args.window]:.2f} Avg_Q:{np.mean(self.M):.2f}"
-                f" Loss: {self.L[i_episode % self.args.window]:.2f}, Avg_Loss: {np.mean(self.L):.4f} Mode: {self.mode}")
+
+            # print(
+            #     f"Episode: {i_episode} |  Step: ({self.t}) | time: {time.time() - start_time:.2f} len: {self.ep_len} mem: {len(self.memory)}"
+            #     f" | EPS: {self.cur_eps:.5f} R: {self.R[i_episode % self.args.window]}, Avg_R: {np.mean(self.R):.3f}"
+            #     f" | Q: {self.M[i_episode % self.args.window]:.2f} Avg_Q:{np.mean(self.M):.2f}"
+            #     f" Loss: {self.L[i_episode % self.args.window]:.2f} | Avg_Loss: {np.mean(self.L):.4f} | Mode: {self.mode}")
 
         ###########################
