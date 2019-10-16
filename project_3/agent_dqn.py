@@ -122,6 +122,9 @@ class Agent_DQN(Agent):
         # Compute Huber loss
         self.loss = F.smooth_l1_loss  #
 
+        # todo: Bug fix on pytorch - https://github.com/pytorch/examples/issues/370
+        # self.policy_net.share_memory()
+        # self.target_net.share_memory()
         self.policy_net.train()
         self.target_net.eval()
         self.target_net.load_state_dict(self.policy_net.state_dict())
@@ -178,7 +181,7 @@ class Agent_DQN(Agent):
         # YOUR IMPLEMENTATION HERE #
         with torch.no_grad():
             self.P.fill(self.cur_eps / self.nA)
-            q, argq = self.policy_net(Variable(observation)).data.cpu().max(1)
+            q, argq = self.policy_net(Variable(self.reset(observation))).data.cpu().max(1)
             self.P[argq[0].item()] += 1 - self.cur_eps
             action = torch.tensor([np.random.choice(self.A, p=self.P)])
         ###########################
@@ -246,11 +249,11 @@ class Agent_DQN(Agent):
         return loss.cpu().detach().numpy()
 
     def reset(self, state):
-        tensor = torch.tensor(state, dtype=torch.float32)
-        if tensor.shape[1] == 4:
-            print("Tensor shape is already 4")
-            return tensor
-        return torch.reshape(tensor, [1, 84, 84, 4]).permute(0, 3, 1, 2)
+        if not isinstance(state, torch.Tensor):
+            state = torch.tensor(state, dtype=torch.float32)
+        if state.shape[1] == 4:
+            return state
+        return torch.reshape(state, [1, 84, 84, 4]).permute(0, 3, 1, 2)
 
     def save_model(self, i_episode):
         if i_episode % self.args.save_freq == 0:
@@ -269,78 +272,82 @@ class Agent_DQN(Agent):
 
     def load_model(self):
         print(f"Restoring model from {self.args.load_dir} . . . ")
-        self.policy_net = torch.load(os.path.join(self.args.save_dir, self.args.load_dir),
+        self.policy_net = torch.load(self.args.load_dir,
                                      map_location=torch.device(self.args.device)).to(self.args.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
-        self.meta.load(open(os.path.join(self.args.save_dir, self.args.load_dir.replace('.th', '.meta'))))
-        self.eps = self.meta.data.eps
-        self.t = self.meta.data.step
+        if not self.args.test_dqn:
+            self.meta.load(open( self.args.load_dir.replace('.th', '.meta')))
+            self.eps = self.meta.data.eps
+            self.t = self.meta.data.step
+        else:
+            self.cur_eps = 0.01
         print(f"Model successfully restored.")
 
+
     def train(self):
-        """
-        Implement your training algorithm here
-        """
-        ###########################
-        # YOUR IMPLEMENTATION HERE #
+            """
+            Implement your training algorithm here
+            """
+            ###########################
+            # YOUR IMPLEMENTATION HERE #
 
-        self.eps = max(self.args.eps, self.args.eps_min)
-        self.eps_delta = (self.eps - self.args.eps_min) / self.args.eps_decay_window
-        self.t = 1
-        self.eps = self.args.eps
-        self.mode = "Random"
-        train_start = time.time()
-        if not self.args.load_dir == '':
-            self.load_model()
-        for i_episode in range(1, self.args.max_episodes + 1):
-            # Initialize the environment and state
-            start_time = time.time()
-            state = self.reset(self.env.reset())
-            self.R[i_episode % self.args.window] = 0
-            self.L[i_episode % self.args.window] = 0
-            self.M[i_episode % self.args.window] = -1e9
-            self.ep_len = 0
-            done = False
+            self.eps = max(self.args.eps, self.args.eps_min)
+            self.eps_delta = (self.eps - self.args.eps_min) / self.args.eps_decay_window
+            self.t = 1
+            self.eps = self.args.eps
+            self.mode = "Random"
+            train_start = time.time()
+            if not self.args.load_dir == '':
+                self.load_model()
+            for i_episode in range(1, self.args.max_episodes + 1):
+                # Initialize the environment and state
+                start_time = time.time()
+                state = self.reset(self.env.reset())
+                self.R[i_episode % self.args.window] = 0
+                self.L[i_episode % self.args.window] = 0
+                self.M[i_episode % self.args.window] = -1e9
+                self.ep_len = 0
+                done = False
 
-            self.collect_garbage(i_episode)
-            self.save_model(i_episode)
+                self.collect_garbage(i_episode)
+                self.save_model(i_episode)
 
-            while not done:
-                # Update the target network, copying all weights and biases in DQN
-                if self.t % self.args.target_update == 0:
-                    print("Updating target network . . .")
-                    self.target_net.load_state_dict(self.policy_net.state_dict())
-                # Select and perform an action
-                self.cur_eps = max(self.args.eps_min, self.eps - self.eps_delta * self.t)
-                if self.cur_eps == self.args.eps_min:
-                    self.mode = 'Exploit'
-                action, q = self.make_action(state)
-                next_state, reward, done, _ = self.env.step(action.item())
-                next_state = self.reset(next_state)
-                reward = torch.tensor([reward], device=self.args.device)
-                # Store the transition in memory
-                self.push(state, torch.tensor([int(action)]), next_state, reward,
-                          torch.tensor([done], dtype=torch.float32))
+                while not done:
+                    # Update the target network, copying all weights and biases in DQN
+                    if self.t % self.args.target_update == 0:
+                        print("Updating target network . . .")
+                        self.target_net.load_state_dict(self.policy_net.state_dict())
+                    # Select and perform an action
+                    self.cur_eps = max(self.args.eps_min, self.eps - self.eps_delta * self.t)
+                    if self.cur_eps == self.args.eps_min:
+                        self.mode = 'Exploit'
+                    action, q = self.make_action(state)
+                    next_state, reward, done, _ = self.env.step(action.item())
+                    next_state = self.reset(next_state)
+                    reward = torch.tensor([reward], device=self.args.device)
+                    # Store the transition in memory
+                    self.push(state, torch.tensor([int(action)]), next_state, reward,
+                              torch.tensor([done], dtype=torch.float32))
 
-                self.R[i_episode % self.args.window] += reward
-                self.M[i_episode % self.args.window] = max(self.M[i_episode % self.args.window], q[0].item())
+                    self.R[i_episode % self.args.window] += reward
+                    self.M[i_episode % self.args.window] = max(self.M[i_episode % self.args.window], q[0].item())
 
-                self.t += 1
-                self.ep_len += 1
+                    self.t += 1
+                    self.ep_len += 1
 
-                # Move to the next state
-                state = next_state
+                    # Move to the next state
+                    state = next_state
 
-                # Perform one step of the optimization (on the target network)
-                if self.ep_len % self.args.learn_freq == 0:
-                    loss = self.optimize_model()
-                    self.L[i_episode % self.args.window] += loss
+                    # Perform one step of the optimization (on the target network)
+                    if self.ep_len % self.args.learn_freq == 0:
+                        loss = self.optimize_model()
+                        self.L[i_episode % self.args.window] += loss
 
-            self.meta.update(i_episode, self.t, time.time() - start_time, time.time() - train_start,
-                             self.ep_len, len(self.memory), self.cur_eps,
-                             self.R[i_episode % self.args.window], np.mean(self.R),
-                             self.M[i_episode % self.args.window], np.mean(self.M),
-                             self.L[i_episode % self.args.window], np.mean(self.L),
-                             self.mode)
+                self.meta.update(i_episode, self.t, time.time() - start_time, time.time() - train_start,
+                                 self.ep_len, len(self.memory), self.cur_eps,
+                                 self.R[i_episode % self.args.window], np.mean(self.R),
+                                 self.M[i_episode % self.args.window], np.mean(self.M),
+                                 self.L[i_episode % self.args.window], np.mean(self.L),
+                                 self.mode)
 
-        ###########################
+            ###########################

@@ -33,7 +33,6 @@ def parse():
     except:
         pass
     args = parser.parse_args()
-
     torch.set_default_tensor_type('torch.cuda.FloatTensor' if args.device == "cuda" else 'torch.FloatTensor')
     return args
 
