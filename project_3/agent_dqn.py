@@ -124,6 +124,7 @@ class Agent_DQN(Agent):
 
         self.policy_net.train()
         self.target_net.eval()
+        self.target_net.load_state_dict(self.policy_net.state_dict())
 
         self.P = np.zeros(env.action_space.n, np.float32)
 
@@ -136,15 +137,12 @@ class Agent_DQN(Agent):
         os.system(f"mkdir -p {self.args.save_dir}")
         self.meta = MetaData(fp=open(os.path.join(self.args.save_dir, 'result.csv'), 'w'), args=self.args)
 
-
         if args.test_dqn:
             # you can load your model here
             print('loading trained model')
-            self.policy_net.load_weights(self.args.model_load_path)
+            self.load_model()
             ###########################
             # YOUR IMPLEMENTATION HERE #
-
-        self.target_net.load_state_dict(self.policy_net.state_dict())
 
     def device(self, func):
         if self.args.device == "cpu":
@@ -270,11 +268,11 @@ class Agent_DQN(Agent):
             gc.collect()
 
     def load_model(self):
-        print(f"Restoring model from {self.args.load} . . . ")
-        self.policy_net = torch.load(os.path.join(self.args.save_dir, self.args.load),
+        print(f"Restoring model from {self.args.load_dir} . . . ")
+        self.policy_net = torch.load(os.path.join(self.args.save_dir, self.args.load_dir),
                                      map_location=torch.device(self.args.device)).to(self.args.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
-        self.meta.load(open(os.path.join(self.args.save_dir, self.args.load.replace('.th', '.meta'))))
+        self.meta.load(open(os.path.join(self.args.save_dir, self.args.load_dir.replace('.th', '.meta'))))
         self.eps = self.meta.data.eps
         self.t = self.meta.data.step
         print(f"Model successfully restored.")
@@ -292,7 +290,7 @@ class Agent_DQN(Agent):
         self.eps = self.args.eps
         self.mode = "Random"
         train_start = time.time()
-        if not self.args.load == '':
+        if not self.args.load_dir == '':
             self.load_model()
         for i_episode in range(1, self.args.max_episodes + 1):
             # Initialize the environment and state
@@ -314,10 +312,9 @@ class Agent_DQN(Agent):
                     self.target_net.load_state_dict(self.policy_net.state_dict())
                 # Select and perform an action
                 self.cur_eps = max(self.args.eps_min, self.eps - self.eps_delta * self.t)
-                if self.cur_eps==self.args.eps_min:
+                if self.cur_eps == self.args.eps_min:
                     self.mode = 'Exploit'
                 action, q = self.make_action(state)
-                # action, q = self.select_action(state)
                 next_state, reward, done, _ = self.env.step(action.item())
                 next_state = self.reset(next_state)
                 reward = torch.tensor([reward], device=self.args.device)
