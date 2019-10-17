@@ -13,7 +13,7 @@ def parse():
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--eps', type=float, default=0.99)
     parser.add_argument('--eps_decay_window', type=int, default=1000000)
-    parser.add_argument('--eps_min', type=float, default=0.1)
+    parser.add_argument('--eps_min', type=float, default=0.01)
     parser.add_argument('--window', type=int, default=100)
     parser.add_argument('--capacity', type=int, default=10000)
     parser.add_argument('--mem_init_size', type=int, default=5000)
