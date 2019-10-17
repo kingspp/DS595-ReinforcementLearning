@@ -297,7 +297,7 @@ class Agent_DQN(Agent):
         self.target_net.load_state_dict(self.policy_net.state_dict())
         if not self.args.test_dqn:
             self.meta.load(open(self.args.load_dir.replace('.th', '.meta')))
-            self.args.eps = self.meta.data.eps
+            self.args.eps = self.meta.data.epsilon
             self.t = self.meta.data.step
         else:
             self.cur_eps = 0.01
