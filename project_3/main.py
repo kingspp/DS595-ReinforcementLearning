@@ -2,7 +2,7 @@ import argparse
 from test import test
 from environment import Environment
 import torch
-import os
+
 
 def parse():
     parser = argparse.ArgumentParser(description="DS595/CS525 RL Project 3")
@@ -24,8 +24,8 @@ def parse():
     parser.add_argument('--load_dir', type=str, default='')
     parser.add_argument('--save_freq', type=int, default=100)
     parser.add_argument('--disp_freq', type=int, default=100)
-    parser.add_argument('--save_dir', type=str, default='checkpoint')
     parser.add_argument('--device', type=str, default='cpu')
+    parser.add_argument('--save_dir', type=str, default='checkpoint')
 
     try:
         from argument import add_arguments
