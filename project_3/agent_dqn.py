@@ -135,15 +135,6 @@ class NaivePrioritizedBuffer(object):
         weights = (total * probs[indices]) ** (-beta)
         weights /= weights.max()
         weights = np.array(weights, dtype=np.float32)
-
-        # batch = list(zip(*samples))
-        # print(np.concatenate(batch[0]).shape)
-        # exit()
-        # states = batch[0]#np.concatenate(batch[0])
-        # actions = batch[1]
-        # rewards = batch[2]
-        # next_states = batch[3]#np.concatenate(batch[3])
-        # dones = batch[4]
         return [*map(lambda x: Variable(torch.cat(x, 0)).to(self.args.device), zip(*samples)), indices, weights]
 
     def update_priorities(self, batch_indices, batch_priorities):
@@ -241,6 +232,11 @@ class Agent_DQN(Agent):
             # YOUR IMPLEMENTATION HERE #
             print('loading trained model')
             self.load_model()
+
+        if args.use_pri_buffer:
+            print('Using priority buffer . . .')
+        if args.use_double_dqn:
+            print('Using double dqn . . .')
 
     def init_game_setting(self):
         """
