@@ -72,7 +72,7 @@ class MetaData(object):
         self.data = self.transition(*args)
         if self.data.episode % self.args.disp_freq == 0:
             print(
-                f"E: {self.data.episode} |  Step: {self.data.step} | T: {self.data.time:.2f} | ET: {self.data.time_elapsed:.2f}"
+                f"E: {self.data.episode} | M: {self.data.buffer_len} |  Step: {self.data.step} | T: {self.data.time:.2f} | ET: {self.data.time_elapsed:.2f}"
                 f" | Len: {self.data.ep_len} | EPS: {self.data.epsilon:.5f} | R: {self.data.reward} | AR: {self.data.avg_reward:.3f}"
                 f" | MAQ:{self.data.max_avg_q:.2f} | L: {self.data.loss:.2f} | AL: {self.data.avg_loss:.4f} | Mode: {self.data.mode}")
         self.fp.write(self.data._asdict().values().__str__().replace('odict_values([', '').replace('])', '' + '\n'))
@@ -92,6 +92,26 @@ class MetaData(object):
         """
         json.dump(self.data._asdict(), f, cls=JsonEncoder, indent=2)
 
+class ReplayMemory(object):
+    """ Facilitates memory replay. """
+
+    def __init__(self, capacity, args):
+        self.capacity = capacity
+        self.memory = []
+        self.idx = 0
+        self.args = args
+        self.transition = namedtuple('Transition',
+                                     ('state', 'action', 'next_state', 'reward', 'done'))
+
+    def push(self, *args):
+        if len(self.memory) < self.capacity:
+            self.memory.append(None)
+        self.memory[self.idx] = self.transition(*args)
+        self.idx = (self.idx + 1) % self.capacity
+
+    def sample(self, bsz):
+        batch = random.sample(self.memory, bsz)
+        return map(lambda x: Variable(torch.cat(x, 0)).to(self.args.device), zip(*batch))
 
 class Agent_DQN(Agent):
     def __init__(self, env, args):
@@ -124,10 +144,9 @@ class Agent_DQN(Agent):
         self.t = 0
         self.ep_len = 0
         self.mode = None
-        self.memory = []
+        self.replay_buffer = ReplayMemory(capacity=self.args.capacity, args=self.args)#[]
         self.position = 0
-        self.transition = namedtuple('Transition',
-                                     ('state', 'action', 'next_state', 'reward', 'done'))
+
         self.args.save_dir += f'/{self.exp_id}/'
         os.system(f"mkdir -p {self.args.save_dir}")
         self.meta = MetaData(fp=open(os.path.join(self.args.save_dir, 'result.csv'), 'w'), args=self.args)
@@ -195,32 +214,32 @@ class Agent_DQN(Agent):
         ###########################
         return action.item()
 
-    def push(self, *args):
-        """ You can add additional arguments as you need. 
-        Push new data to buffer and remove the old one if the buffer is full.
-        
-        Hints:
-        -----
-            you can consider deque(maxlen = 10000) list
-        """
-        ###########################
-        # YOUR IMPLEMENTATION HERE #
-        if len(self.memory) < self.args.capacity:
-            self.memory.append(None)
-        self.memory[self.position] = self.transition(*args)
-        self.position = (self.position + 1) % self.args.capacity
-        ###########################
+    # def push(self, *args):
+    #     """ You can add additional arguments as you need.
+    #     Push new data to buffer and remove the old one if the buffer is full.
+    #
+    #     Hints:
+    #     -----
+    #         you can consider deque(maxlen = 10000) list
+    #     """
+    #     ###########################
+    #     # YOUR IMPLEMENTATION HERE #
+    #     if len(self.memory) < self.args.capacity:
+    #         self.memory.append(None)
+    #     self.memory[self.position] = self.transition(*args)
+    #     self.position = (self.position + 1) % self.args.capacity
+    #     ###########################
 
-    def replay_buffer(self, batch_size):
-        """ You can add additional arguments as you need.
-        Select batch from buffer.
-        """
-        ###########################
-        # YOUR IMPLEMENTATION HERE #
-        sample = random.sample(self.memory, batch_size)
-        sample = map(lambda x: Variable(torch.cat(x, 0)), zip(*sample))
-        ###########################
-        return sample
+    # def replay_buffer(self, batch_size):
+    #     """ You can add additional arguments as you need.
+    #     Select batch from buffer.
+    #     """
+    #     ###########################
+    #     # YOUR IMPLEMENTATION HERE #
+    #     sample = random.sample(self.memory, batch_size)
+    #     sample = map(lambda x: Variable(torch.cat(x, 0)), zip(*sample))
+    #     ###########################
+    #     return sample
 
     def optimize_model(self):
         """
@@ -228,11 +247,11 @@ class Agent_DQN(Agent):
         :return: Loss
         """
         # Return if initial buffer is not filled.
-        if len(self.memory) < self.args.mem_init_size:
+        if len(self.replay_buffer.memory) < self.args.mem_init_size:
             return 0
 
         self.mode = "Explore"
-        batch_state, batch_action, batch_next_state, batch_reward, batch_done = self.replay_buffer(self.args.batch_size)
+        batch_state, batch_action, batch_next_state, batch_reward, batch_done = self.replay_buffer.sample(self.args.batch_size)
         policy_max_q = self.policy_net(batch_state).gather(1, batch_action.unsqueeze(1)).squeeze(1)
         target_max_q = self.target_net(batch_next_state).detach().max(1)[0].squeeze(0) * self.args.gamma * (
                 1 - batch_done)
@@ -343,7 +362,7 @@ class Agent_DQN(Agent):
                 next_state = self.channel_first(next_state)
                 reward = torch.tensor([reward], device=self.args.device)
                 # Store the transition in memory
-                self.push(state, torch.tensor([int(action)]), next_state, reward,
+                self.replay_buffer.push(state, torch.tensor([int(action)]), next_state, reward,
                           torch.tensor([done], dtype=torch.float32))
 
                 self.reward_list[i_episode % self.args.window] += reward
@@ -364,7 +383,7 @@ class Agent_DQN(Agent):
 
             # Update meta
             self.meta.update(i_episode, self.t, time.time() - start_time, time.time() - train_start,
-                             self.ep_len, len(self.memory), self.cur_eps,
+                             self.ep_len, len(self.replay_buffer.memory), self.cur_eps,
                              self.reward_list[i_episode % self.args.window], np.mean(self.reward_list),
                              self.max_q_list[i_episode % self.args.window], np.mean(self.max_q_list),
                              self.loss_list[i_episode % self.args.window], np.mean(self.loss_list),
