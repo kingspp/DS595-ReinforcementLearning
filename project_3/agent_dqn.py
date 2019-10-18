@@ -105,10 +105,6 @@ class NaivePrioritizedBuffer(object):
         self.args = args
 
     def push(self, *args):
-        # assert state.ndim == next_state.ndim
-        # state = np.expand_dims(state, 0)
-        # next_state = np.expand_dims(next_state, 0)
-
         max_prio = self.priorities.max() if self.memory else 1.0
 
         if len(self.memory) < self.capacity:
@@ -190,9 +186,9 @@ class Agent_DQN(Agent):
         self.eps_threshold = None
         self.nA = env.action_space.n
         self.action_list = np.arange(self.nA)
-        self.reward_list = []#np.zeros(args.window, np.float32)
-        self.max_q_list = []#np.zeros(args.window, np.float32)
-        self.loss_list = []#np.zeros(args.window, np.float32)
+        self.reward_list = deque(maxlen=args.window)  # np.zeros(args.window, np.float32)
+        self.max_q_list = deque(maxlen=args.window)  # np.zeros(args.window, np.float32)
+        self.loss_list = deque(maxlen=args.window)  # np.zeros(args.window, np.float32)
         self.probability_list = np.zeros(env.action_space.n, np.float32)
         self.cur_eps = None
         self.t = 0
@@ -294,11 +290,12 @@ class Agent_DQN(Agent):
         policy_max_q = self.policy_net(batch_state).gather(1, batch_action.unsqueeze(1)).squeeze(1)
         if self.args.use_double_dqn:
             policy_ns_max_q = self.policy_net(batch_next_state)
-            next_q_value = self.target_net(batch_next_state).gather(1, torch.max(policy_ns_max_q, 1)[1].unsqueeze(1)).squeeze(1)
+            next_q_value = self.target_net(batch_next_state).gather(1, torch.max(policy_ns_max_q, 1)[1].unsqueeze(
+                1)).squeeze(1)
             target_max_q = next_q_value * self.args.gamma * (1 - batch_done)
         else:
             target_max_q = self.target_net(batch_next_state).detach().max(1)[0].squeeze(0) * self.args.gamma * (
-                1 - batch_done)
+                    1 - batch_done)
 
         # Compute Huber loss
         if self.args.use_pri_buffer:
@@ -391,13 +388,6 @@ class Agent_DQN(Agent):
             self.reward_list.append(0)
             self.loss_list.append(0)
             self.max_q_list.append(0)
-            if len(self.reward_list) == self.args.window:
-                self.reward_list.clear()
-                self.loss_list.clear()
-                self.max_q_list.clear()
-            # self.reward_list[i_episode % self.args.window] = 0
-            # self.loss_list[i_episode % self.args.window] = 0
-            # self.max_q_list[i_episode % self.args.window] = -1e9
             self.ep_len = 0
             done = False
 
@@ -418,19 +408,13 @@ class Agent_DQN(Agent):
                     self.mode = 'Exploit'
                 action, q = self.make_action(state)
                 next_state, reward, done, _ = self.env.step(action.item())
+                self.reward_list[-1] += reward
+                self.max_q_list[-1] = max(self.max_q_list[-1], q[0].item())
                 next_state = self.channel_first(next_state)
                 reward = torch.tensor([reward], device=self.args.device)
                 # Store the transition in memory
                 self.replay_buffer.push(state, torch.tensor([int(action)]), next_state, reward,
                                         torch.tensor([done], dtype=torch.float32))
-                self.reward_list[-1]+=reward
-                self.max_q_list[-1]= max(self.max_q_list[-1],q[0].item())
-
-                # self.reward_list[i_episode % self.args.window] += reward
-                # self.max_q_list[i_episode % self.args.window] = max(self.max_q_list[i_episode % self.args.window],
-                #                                                     q[0].item())
-
-
 
                 # Increment step and Episode Length
                 self.t += 1
@@ -442,8 +426,8 @@ class Agent_DQN(Agent):
                 # Perform one step of the optimization (on the target network)
                 if self.ep_len % self.args.learn_freq == 0:
                     loss = self.optimize_model()
-                    # self.loss_list[i_episode % self.args.window] += loss
-                    self.loss_list[-1]+=loss
+                    self.loss_list[-1] += loss
+            self.loss_list[-1] /=self.ep_len
 
             # Update meta
             self.meta.update(i_episode, self.t, time.time() - start_time, time.time() - train_start,
