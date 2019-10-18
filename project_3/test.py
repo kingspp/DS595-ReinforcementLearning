@@ -39,6 +39,7 @@ def test(agent, env, total_episodes=30):
             episode_reward += reward
 
         rewards.append(episode_reward)
+        print(f"E:{i} | R: {np.mean(rewards)}")
     print('Run %d episodes'%(total_episodes))
     print('Mean:', np.mean(rewards))
 
@@ -54,3 +55,4 @@ def run(args):
 if __name__ == '__main__':
     args = parse()
     run(args)
+

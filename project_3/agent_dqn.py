@@ -323,7 +323,12 @@ class Agent_DQN(Agent):
             batch_state, batch_action, batch_next_state, batch_reward, batch_done = self.replay_buffer.sample(
                 self.args.batch_size)
         policy_max_q = self.policy_net(batch_state).gather(1, batch_action.unsqueeze(1)).squeeze(1)
-        target_max_q = self.target_net(batch_next_state).detach().max(1)[0].squeeze(0) * self.args.gamma * (
+        if self.args.use_double_dqn:
+            policy_ns_max_q = self.policy_net(batch_next_state)
+            next_q_value = self.target_net(batch_next_state).gather(1, torch.max(policy_ns_max_q, 1)[1].unsqueeze(1)).squeeze(1)
+            target_max_q = next_q_value * self.args.gamma * (1 - batch_done)
+        else:
+            target_max_q = self.target_net(batch_next_state).detach().max(1)[0].squeeze(0) * self.args.gamma * (
                 1 - batch_done)
 
         # Compute Huber loss

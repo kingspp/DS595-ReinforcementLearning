@@ -27,6 +27,7 @@ def parse():
     parser.add_argument('--device', type=str, default='cpu')
     parser.add_argument('--save_dir', type=str, default='checkpoint')
     parser.add_argument('--use_pri_buffer', type=bool, default=True)
+    parser.add_argument('--use_double_dqn', type=bool, default=True)
 
 
     try:
