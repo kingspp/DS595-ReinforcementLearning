@@ -92,7 +92,69 @@ class MetaData(object):
         """
         json.dump(self.data._asdict(), f, cls=JsonEncoder, indent=2)
 
-class ReplayMemory(object):
+
+class NaivePrioritizedBuffer(object):
+    def __init__(self, capacity, args, prob_alpha=0.6):
+        self.prob_alpha = prob_alpha
+        self.capacity = capacity
+        self.memory = []
+        self.pos = 0
+        self.priorities = np.zeros((capacity,), dtype=np.float32)
+        self.transition = namedtuple('Transition',
+                                     ('state', 'action', 'next_state', 'reward', 'done'))
+        self.args = args
+
+    def push(self, *args):
+        # assert state.ndim == next_state.ndim
+        # state = np.expand_dims(state, 0)
+        # next_state = np.expand_dims(next_state, 0)
+
+        max_prio = self.priorities.max() if self.memory else 1.0
+
+        if len(self.memory) < self.capacity:
+            self.memory.append(self.transition(*args))
+        else:
+            self.memory[self.pos] = self.transition(*args)
+
+        self.priorities[self.pos] = max_prio
+        self.pos = (self.pos + 1) % self.capacity
+
+    def sample(self, batch_size, beta=0.4):
+        if len(self.memory) == self.capacity:
+            prios = self.priorities
+        else:
+            prios = self.priorities[:self.pos]
+
+        probs = prios ** self.prob_alpha
+        probs /= probs.sum()
+
+        indices = np.random.choice(len(self.memory), batch_size, p=probs)
+        samples = [self.memory[idx] for idx in indices]
+
+        total = len(self.memory)
+        weights = (total * probs[indices]) ** (-beta)
+        weights /= weights.max()
+        weights = np.array(weights, dtype=np.float32)
+
+        # batch = list(zip(*samples))
+        # print(np.concatenate(batch[0]).shape)
+        # exit()
+        # states = batch[0]#np.concatenate(batch[0])
+        # actions = batch[1]
+        # rewards = batch[2]
+        # next_states = batch[3]#np.concatenate(batch[3])
+        # dones = batch[4]
+        return [*map(lambda x: Variable(torch.cat(x, 0)).to(self.args.device), zip(*samples)), indices, weights]
+
+    def update_priorities(self, batch_indices, batch_priorities):
+        for idx, prio in zip(batch_indices, batch_priorities):
+            self.priorities[idx] = prio
+
+    def __len__(self):
+        return len(self.memory)
+
+
+class ReplayBuffer(object):
     """ Facilitates memory replay. """
 
     def __init__(self, capacity, args):
@@ -112,6 +174,7 @@ class ReplayMemory(object):
     def sample(self, bsz):
         batch = random.sample(self.memory, bsz)
         return map(lambda x: Variable(torch.cat(x, 0)).to(self.args.device), zip(*batch))
+
 
 class Agent_DQN(Agent):
     def __init__(self, env, args):
@@ -144,7 +207,10 @@ class Agent_DQN(Agent):
         self.t = 0
         self.ep_len = 0
         self.mode = None
-        self.replay_buffer = ReplayMemory(capacity=self.args.capacity, args=self.args)#[]
+        if self.args.use_pri_buffer:
+            self.replay_buffer = NaivePrioritizedBuffer(capacity=self.args.capacity, args=self.args)
+        else:
+            self.replay_buffer = ReplayBuffer(capacity=self.args.capacity, args=self.args)
         self.position = 0
 
         self.args.save_dir += f'/{self.exp_id}/'
@@ -249,15 +315,24 @@ class Agent_DQN(Agent):
         # Return if initial buffer is not filled.
         if len(self.replay_buffer.memory) < self.args.mem_init_size:
             return 0
-
         self.mode = "Explore"
-        batch_state, batch_action, batch_next_state, batch_reward, batch_done = self.replay_buffer.sample(self.args.batch_size)
+        if self.args.use_pri_buffer:
+            batch_state, batch_action, batch_next_state, batch_reward, batch_done, indices, weights = self.replay_buffer.sample(
+                self.args.batch_size)
+        else:
+            batch_state, batch_action, batch_next_state, batch_reward, batch_done = self.replay_buffer.sample(
+                self.args.batch_size)
         policy_max_q = self.policy_net(batch_state).gather(1, batch_action.unsqueeze(1)).squeeze(1)
         target_max_q = self.target_net(batch_next_state).detach().max(1)[0].squeeze(0) * self.args.gamma * (
                 1 - batch_done)
 
         # Compute Huber loss
-        loss = self.loss(policy_max_q, batch_reward + target_max_q)
+        if self.args.use_pri_buffer:
+            loss = self.loss(policy_max_q, batch_reward + target_max_q) * torch.tensor(weights, dtype=torch.float32)
+            prios = loss + 1e-5
+            loss = loss.mean()
+        else:
+            loss = self.loss(policy_max_q, batch_reward + target_max_q)
 
         # Optimize the model
         self.optimizer.zero_grad()
@@ -266,6 +341,9 @@ class Agent_DQN(Agent):
         # Clip rewards between -1 and 1
         for param in self.policy_net.parameters():
             param.grad.data.clamp_(-1, 1)
+
+        if self.args.use_pri_buffer:
+            self.replay_buffer.update_priorities(indices, prios.data.cpu().numpy())
 
         self.optimizer.step()
         return loss.cpu().detach().numpy()
@@ -363,7 +441,7 @@ class Agent_DQN(Agent):
                 reward = torch.tensor([reward], device=self.args.device)
                 # Store the transition in memory
                 self.replay_buffer.push(state, torch.tensor([int(action)]), next_state, reward,
-                          torch.tensor([done], dtype=torch.float32))
+                                        torch.tensor([done], dtype=torch.float32))
 
                 self.reward_list[i_episode % self.args.window] += reward
                 self.max_q_list[i_episode % self.args.window] = max(self.max_q_list[i_episode % self.args.window],
