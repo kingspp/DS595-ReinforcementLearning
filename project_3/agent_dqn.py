@@ -190,9 +190,9 @@ class Agent_DQN(Agent):
         self.eps_threshold = None
         self.nA = env.action_space.n
         self.action_list = np.arange(self.nA)
-        self.reward_list = np.zeros(args.window, np.float32)
-        self.max_q_list = np.zeros(args.window, np.float32)
-        self.loss_list = np.zeros(args.window, np.float32)
+        self.reward_list = []#np.zeros(args.window, np.float32)
+        self.max_q_list = []#np.zeros(args.window, np.float32)
+        self.loss_list = []#np.zeros(args.window, np.float32)
         self.probability_list = np.zeros(env.action_space.n, np.float32)
         self.cur_eps = None
         self.t = 0
@@ -275,33 +275,6 @@ class Agent_DQN(Agent):
                 return action, q
         ###########################
         return action.item()
-
-    # def push(self, *args):
-    #     """ You can add additional arguments as you need.
-    #     Push new data to buffer and remove the old one if the buffer is full.
-    #
-    #     Hints:
-    #     -----
-    #         you can consider deque(maxlen = 10000) list
-    #     """
-    #     ###########################
-    #     # YOUR IMPLEMENTATION HERE #
-    #     if len(self.memory) < self.args.capacity:
-    #         self.memory.append(None)
-    #     self.memory[self.position] = self.transition(*args)
-    #     self.position = (self.position + 1) % self.args.capacity
-    #     ###########################
-
-    # def replay_buffer(self, batch_size):
-    #     """ You can add additional arguments as you need.
-    #     Select batch from buffer.
-    #     """
-    #     ###########################
-    #     # YOUR IMPLEMENTATION HERE #
-    #     sample = random.sample(self.memory, batch_size)
-    #     sample = map(lambda x: Variable(torch.cat(x, 0)), zip(*sample))
-    #     ###########################
-    #     return sample
 
     def optimize_model(self):
         """
@@ -415,9 +388,16 @@ class Agent_DQN(Agent):
             # Initialize the environment and state
             start_time = time.time()
             state = self.channel_first(self.env.reset())
-            self.reward_list[i_episode % self.args.window] = 0
-            self.loss_list[i_episode % self.args.window] = 0
-            self.max_q_list[i_episode % self.args.window] = -1e9
+            self.reward_list.append(0)
+            self.loss_list.append(0)
+            self.max_q_list.append(0)
+            if len(self.reward_list) == self.args.window:
+                self.reward_list.clear()
+                self.loss_list.clear()
+                self.max_q_list.clear()
+            # self.reward_list[i_episode % self.args.window] = 0
+            # self.loss_list[i_episode % self.args.window] = 0
+            # self.max_q_list[i_episode % self.args.window] = -1e9
             self.ep_len = 0
             done = False
 
@@ -443,10 +423,14 @@ class Agent_DQN(Agent):
                 # Store the transition in memory
                 self.replay_buffer.push(state, torch.tensor([int(action)]), next_state, reward,
                                         torch.tensor([done], dtype=torch.float32))
+                self.reward_list[-1]+=reward
+                self.max_q_list[-1]= max(self.max_q_list[-1],q[0].item())
 
-                self.reward_list[i_episode % self.args.window] += reward
-                self.max_q_list[i_episode % self.args.window] = max(self.max_q_list[i_episode % self.args.window],
-                                                                    q[0].item())
+                # self.reward_list[i_episode % self.args.window] += reward
+                # self.max_q_list[i_episode % self.args.window] = max(self.max_q_list[i_episode % self.args.window],
+                #                                                     q[0].item())
+
+
 
                 # Increment step and Episode Length
                 self.t += 1
@@ -458,14 +442,15 @@ class Agent_DQN(Agent):
                 # Perform one step of the optimization (on the target network)
                 if self.ep_len % self.args.learn_freq == 0:
                     loss = self.optimize_model()
-                    self.loss_list[i_episode % self.args.window] += loss
+                    # self.loss_list[i_episode % self.args.window] += loss
+                    self.loss_list[-1]+=loss
 
             # Update meta
             self.meta.update(i_episode, self.t, time.time() - start_time, time.time() - train_start,
                              self.ep_len, len(self.replay_buffer.memory), self.cur_eps,
-                             self.reward_list[i_episode % self.args.window], np.mean(self.reward_list),
-                             self.max_q_list[i_episode % self.args.window], np.mean(self.max_q_list),
-                             self.loss_list[i_episode % self.args.window], np.mean(self.loss_list),
+                             self.reward_list[-1], np.mean(self.reward_list),
+                             self.max_q_list[-1], np.mean(self.max_q_list),
+                             self.loss_list[-1], np.mean(self.loss_list),
                              self.mode)
 
         ###########################
