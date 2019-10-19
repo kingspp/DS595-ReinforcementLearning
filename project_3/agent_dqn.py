@@ -241,6 +241,9 @@ class Agent_DQN(Agent):
         if args.use_double_dqn:
             print('Using double dqn . . .')
 
+        print("Arguments: \n", json.dumps(vars(self.args), indent=2), '\n')
+
+
     def init_game_setting(self):
         """
         Testing function will call this function at the begining of new game
