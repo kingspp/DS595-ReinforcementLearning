@@ -24,13 +24,17 @@ def parse():
     parser.add_argument('--load_dir', type=str, default='')
     parser.add_argument('--save_freq', type=int, default=1000)
     parser.add_argument('--disp_freq', type=int, default=100)
-    parser.add_argument('--lr', type=int, default=1e-5)
     parser.add_argument('--optimizer_eps', type=int, default=0.001)
     parser.add_argument('--device', type=str, default='cpu')
     parser.add_argument('--save_dir', type=str, default='checkpoint')
     parser.add_argument('--use_pri_buffer', type=bool, default=True)
     parser.add_argument('--use_double_dqn', type=bool, default=True)
-    parser.add_argument('--use_dueling', type=bool, default=False)
+    parser.add_argument('--use_dueling', type=bool, default=True)
+    parser.add_argument('--lr', type=int, default=1e-2)
+    parser.add_argument("--lr_scheduler", type=bool, default=True)
+    parser.add_argument("--lr_min", type=float, default=1e-5)
+    parser.add_argument("--lr_decay", type=float, default=0.99)
+    parser.add_argument("--lr_decay_step", type=float, default=4)
 
 
     try:

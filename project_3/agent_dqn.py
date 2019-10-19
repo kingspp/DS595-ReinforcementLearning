@@ -59,9 +59,7 @@ class MetaData(object):
         self.transition = namedtuple('Data',
                                      (
                                          "episode", "step", "time", "time_elapsed", "ep_len", "buffer_len", "epsilon",
-                                         "reward",
-                                         "avg_reward", "max_q", "max_avg_q",
-                                         "loss", "avg_loss", "mode"))
+                                         "reward","avg_reward", "max_q", "max_avg_q","loss", "avg_loss", "mode", "lr"))
         self.fp = fp
         self.data = None
         self.args = args
@@ -74,9 +72,11 @@ class MetaData(object):
         self.data = self.transition(*args)
         if self.data.episode % self.args.disp_freq == 0:
             print(
-                f"E: {self.data.episode} | M: {self.data.buffer_len} |  Step: {self.data.step} | T: {self.data.time:.2f}"
-                f" | Len: {self.data.ep_len} | EPS: {self.data.epsilon:.5f} | R: {self.data.reward} | AR: {self.data.avg_reward:.3f}"
-                f" | MAQ:{self.data.max_avg_q:.2f} | L: {self.data.loss:.2f} | AL: {self.data.avg_loss:.4f} | Mode: {self.data.mode} | ET: {naturaltime(self.data.time_elapsed)}")
+                f"E: {self.data.episode} | M: {self.data.buffer_len} |  Step: {self.data.step} "
+                f"| T: {self.data.time:.2f} | Len: {self.data.ep_len} | EPS: {self.data.epsilon:.5f} "
+                f"| R: {self.data.reward} | AR: {self.data.avg_reward:.3f} | MAQ:{self.data.max_avg_q:.2f} "
+                f"| L: {self.data.loss:.2f} | AL: {self.data.avg_loss:.4f} | Mode: {self.data.mode} "
+                f"| LR: {self.data.lr:.7f} | ET: {naturaltime(self.data.time_elapsed)}")
         self.fp.write(self.data._asdict().values().__str__().replace('odict_values([', '').replace('])', '\n'))
 
     def load(self, f):
@@ -217,6 +217,11 @@ class Agent_DQN(Agent):
             self.target_net = DQN(env).to(self.args.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=self.args.lr, eps=self.args.optimizer_eps)
+        if self.args.lr_scheduler:
+            print("Enabling LR Decay . . .")
+            self.scheduler = optim.lr_scheduler.ExponentialLR(optimizer=self.optimizer, gamma=self.args.lr_decay)
+        self.cur_lr = self.optimizer.param_groups[0]['lr']
+
         # Compute Huber loss
         self.loss = F.smooth_l1_loss
 
@@ -376,7 +381,7 @@ class Agent_DQN(Agent):
             self.meta.load(open(self.args.load_dir.replace('.th', '.meta')))
             self.t = self.meta.data.step
         else:
-            self.cur_eps = 0.01
+            self.cur_eps = 1e-10
         print(f"Model successfully restored.")
 
     def train(self):
@@ -440,12 +445,18 @@ class Agent_DQN(Agent):
                     self.loss_list[-1] += loss
             self.loss_list[-1] /= self.ep_len
 
+            # Decay Step:
+            if self.args.lr_scheduler:
+                self.cur_lr = self.scheduler.get_lr()[0]
+                if i_episode%self.args.lr_decay_step == 0 and self.cur_lr>self.args.lr_min:
+                    self.scheduler.step(i_episode)
+
             # Update meta
             self.meta.update(i_episode, self.t, time.time() - start_time, time.time() - train_start,
                              self.ep_len, len(self.replay_buffer.memory), self.cur_eps,
                              self.reward_list[-1], np.mean(self.reward_list),
                              self.max_q_list[-1], np.mean(self.max_q_list),
                              self.loss_list[-1], np.mean(self.loss_list),
-                             self.mode)
+                             self.mode, self.cur_lr)
 
         ###########################
