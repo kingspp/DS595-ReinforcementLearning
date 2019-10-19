@@ -274,6 +274,10 @@ class Agent_DQN(Agent):
         ###########################
         # YOUR IMPLEMENTATION HERE #
         with torch.no_grad():
+
+            if self.args.test_dqn:
+                q, argq = self.policy_net(Variable(self.channel_first(observation))).data.cpu().max(1)
+                return self.action_list[argq]
             # Fill up probability list equal for all actions
             self.probability_list.fill(self.cur_eps / self.nA)
             # Fetch q from the model prediction
@@ -282,10 +286,9 @@ class Agent_DQN(Agent):
             self.probability_list[argq[0].item()] += 1 - self.cur_eps
             # Use random choice to decide between a random action / best action
             action = torch.tensor([np.random.choice(self.action_list, p=self.probability_list)])
-            if not self.args.test_dqn:
-                return action, q
+
         ###########################
-        return action.item()
+        return action, q
 
     def optimize_model(self):
         """
@@ -380,8 +383,6 @@ class Agent_DQN(Agent):
         if not self.args.test_dqn:
             self.meta.load(open(self.args.load_dir.replace('.th', '.meta')))
             self.t = self.meta.data.step
-        else:
-            self.cur_eps = 1e-10
         print(f"Model successfully restored.")
 
     def train(self):
