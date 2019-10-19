@@ -17,6 +17,7 @@ import time
 from torch.autograd import Variable
 import json
 import uuid
+from humanize import naturaltime
 
 """
 you can import any package and define any extra function as you need
@@ -73,10 +74,10 @@ class MetaData(object):
         self.data = self.transition(*args)
         if self.data.episode % self.args.disp_freq == 0:
             print(
-                f"E: {self.data.episode} | M: {self.data.buffer_len} |  Step: {self.data.step} | T: {self.data.time:.2f} | ET: {self.data.time_elapsed:.2f}"
+                f"E: {self.data.episode} | M: {self.data.buffer_len} |  Step: {self.data.step} | T: {self.data.time:.2f}"
                 f" | Len: {self.data.ep_len} | EPS: {self.data.epsilon:.5f} | R: {self.data.reward} | AR: {self.data.avg_reward:.3f}"
-                f" | MAQ:{self.data.max_avg_q:.2f} | L: {self.data.loss:.2f} | AL: {self.data.avg_loss:.4f} | Mode: {self.data.mode}")
-        self.fp.write(self.data._asdict().values().__str__().replace('odict_values([', '').replace('])', '' + '\n'))
+                f" | MAQ:{self.data.max_avg_q:.2f} | L: {self.data.loss:.2f} | AL: {self.data.avg_loss:.4f} | Mode: {self.data.mode} | ET: {naturaltime(self.data.time_elapsed)}")
+        self.fp.write(self.data._asdict().values().__str__().replace('odict_values([', '').replace('])', '\n'))
 
     def load(self, f):
         """
@@ -215,7 +216,7 @@ class Agent_DQN(Agent):
             self.policy_net = DQN(env).to(self.args.device)
             self.target_net = DQN(env).to(self.args.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
-        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=1.5e-4, eps=0.001)
+        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=self.args.lr, eps=self.args.optimizer_eps)
         # Compute Huber loss
         self.loss = F.smooth_l1_loss
 
@@ -286,7 +287,6 @@ class Agent_DQN(Agent):
         # Return if initial buffer is not filled.
         if len(self.replay_buffer.memory) < self.args.mem_init_size:
             return 0
-        self.mode = "Explore"
         if self.args.use_pri_buffer:
             batch_state, batch_action, batch_next_state, batch_reward, batch_done, indices, weights = self.replay_buffer.sample(
                 self.args.batch_size)
@@ -412,6 +412,8 @@ class Agent_DQN(Agent):
                 self.cur_eps = max(self.args.eps_min, self.args.eps - self.eps_delta * self.t)
                 if self.cur_eps == self.args.eps_min:
                     self.mode = 'Exploit'
+                else:
+                    self.mode = "Explore"
                 action, q = self.make_action(state)
                 next_state, reward, done, _ = self.env.step(action.item())
                 self.reward_list[-1] += reward
@@ -433,7 +435,7 @@ class Agent_DQN(Agent):
                 if self.ep_len % self.args.learn_freq == 0:
                     loss = self.optimize_model()
                     self.loss_list[-1] += loss
-            self.loss_list[-1] /=self.ep_len
+            self.loss_list[-1] /= self.ep_len
 
             # Update meta
             self.meta.update(i_episode, self.t, time.time() - start_time, time.time() - train_start,
