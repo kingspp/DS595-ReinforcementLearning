@@ -12,6 +12,7 @@ from itertools import count
 import gc
 from agent import Agent
 from dqn_model import DQN
+from dueling_dqn_model import DuelingDQN
 import time
 from torch.autograd import Variable
 import json
@@ -206,8 +207,13 @@ class Agent_DQN(Agent):
         self.eps_delta = (self.args.eps - self.args.eps_min) / self.args.eps_decay_window
 
         # Create Policy and Target Networks
-        self.policy_net = DQN(env).to(self.args.device)
-        self.target_net = DQN(env).to(self.args.device)
+        if self.args.use_dueling:
+            print("Using dueling dqn . . .")
+            self.policy_net = DuelingDQN(env).to(self.args.device)
+            self.target_net = DuelingDQN(env).to(self.args.device)
+        else:
+            self.policy_net = DQN(env).to(self.args.device)
+            self.target_net = DQN(env).to(self.args.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=1.5e-4, eps=0.001)
         # Compute Huber loss
