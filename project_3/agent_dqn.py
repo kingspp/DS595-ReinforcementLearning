@@ -192,7 +192,7 @@ class Agent_DQN(Agent):
         self.max_q_list = deque(maxlen=args.window)  # np.zeros(args.window, np.float32)
         self.loss_list = deque(maxlen=args.window)  # np.zeros(args.window, np.float32)
         self.probability_list = np.zeros(env.action_space.n, np.float32)
-        self.cur_eps = None
+        self.cur_eps = self.args.eps
         self.t = 0
         self.ep_len = 0
         self.mode = None
@@ -418,7 +418,7 @@ class Agent_DQN(Agent):
                     print("Updating target network . . .")
                     self.target_net.load_state_dict(self.policy_net.state_dict())
                 # Select and perform an action
-                self.cur_eps = max(self.args.eps_min, self.args.eps - self.eps_delta * self.t)
+                self.cur_eps = max(self.args.eps_min, self.cur_eps - self.eps_delta)
                 if self.cur_eps == self.args.eps_min:
                     self.mode = 'Exploit'
                 else:
