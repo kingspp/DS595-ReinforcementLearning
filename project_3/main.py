@@ -33,7 +33,7 @@ def parse():
     parser.add_argument('--lr', type=int, default=1e-3)
     parser.add_argument("--lr_scheduler", type=bool, default=True)
     parser.add_argument("--lr_min", type=float, default=1e-5)
-    parser.add_argument("--lr_decay", type=float, default=0.999)
+    parser.add_argument("--lr_decay", type=float, default=0.99)
     parser.add_argument("--lr_decay_step", type=float, default=5)
 
 
