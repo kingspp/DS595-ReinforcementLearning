@@ -27,15 +27,15 @@ class DuelingDQN(nn.Module):
         )
 
         self.advantage = nn.Sequential(
-            nn.Linear(7 * 7 * 64, 512),
+            nn.Linear(7 * 7 * 64, 1024),
             nn.ReLU(),
-            nn.Linear(512, self.num_actions)
+            nn.Linear(1024, 4)
         )
 
         self.value = nn.Sequential(
-            nn.Linear(7 * 7 * 64, 512),
+            nn.Linear(7 * 7 * 64, 1024),
             nn.ReLU(),
-            nn.Linear(512, 1)
+            nn.Linear(1024, 1)
         )
 
     def forward(self, x):

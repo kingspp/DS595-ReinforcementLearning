@@ -58,8 +58,11 @@ class MetaData(object):
 
     def __init__(self, fp, args):
         self.episode_template = namedtuple('EpisodeData',
-                                       ("episode", "step", "time", "time_elapsed", "ep_len", "buffer_len", "epsilon",
-                                        "reward", "avg_reward", "max_q", "max_avg_q", "loss", "avg_loss", "mode", "lr"))
+                                           (
+                                               "episode", "step", "time", "time_elapsed", "ep_len", "buffer_len",
+                                               "epsilon",
+                                               "reward", "avg_reward", "max_q", "max_avg_q", "loss", "avg_loss", "mode",
+                                               "lr"))
         self.step_template = namedtuple('StepData', ("step", "epsilon", "reward", "max_q", "loss", "lr"))
         self.fp = fp
         self.episode_data = None
@@ -67,7 +70,7 @@ class MetaData(object):
         self.args = args
         if self.args.tb_summary:
             from tensorboardX import SummaryWriter
-            self.writer = SummaryWriter('/'.join(self.fp.name.split('/')[:-1])+'/tb_logs/')
+            self.writer = SummaryWriter('/'.join(self.fp.name.split('/')[:-1]) + '/tb_logs/')
 
     def update_step(self, *args):
         self.step_data = self.step_template(*args)
@@ -77,7 +80,6 @@ class MetaData(object):
             self.writer.add_scalar('step/reward', self.step_data.reward, self.step_data.step)
             self.writer.add_scalar('step/max_q', self.step_data.max_q, self.step_data.step)
             self.writer.add_scalar('step/loss', self.step_data.loss, self.step_data.step)
-
 
     def update_episode(self, *args):
         """
@@ -187,7 +189,7 @@ class ReplayBuffer(object):
 
     def sample(self, bsz):
         batch = random.sample(self.memory, bsz)
-        return map(lambda x: Variable(torch.cat(x, 0)).to(self.args.device), zip(*batch))
+        return [*zip(*batch)]
 
 
 class Agent_DQN(Agent):
@@ -205,7 +207,6 @@ class Agent_DQN(Agent):
         super(Agent_DQN, self).__init__(env)
         ###########################
         # YOUR IMPLEMENTATION HERE #
-
         # Declare variables
         self.exp_id = uuid.uuid4().__str__().replace('-', '_')
         self.args = args
@@ -231,6 +232,7 @@ class Agent_DQN(Agent):
         os.system(f"mkdir -p {self.args.save_dir}")
         self.meta = MetaData(fp=open(os.path.join(self.args.save_dir, 'result.csv'), 'w'), args=self.args)
         self.eps_delta = (self.args.eps - self.args.eps_min) / self.args.eps_decay_window
+        self.beta_by_frame = lambda frame_idx: min(1.0, args.pri_beta_start + frame_idx * (1.0 - args.pri_beta_start) / args.pri_beta_decay)
 
         # Create Policy and Target Networks
         if self.args.use_dueling:
@@ -330,7 +332,7 @@ class Agent_DQN(Agent):
             return 0
         if self.args.use_pri_buffer:
             batch_state, batch_action, batch_next_state, batch_reward, batch_done, indices, weights = self.replay_buffer.sample(
-                self.args.batch_size)
+                self.args.batch_size, beta=self.beta_by_frame(self.t))
         else:
             batch_state, batch_action, batch_next_state, batch_reward, batch_done = self.replay_buffer.sample(
                 self.args.batch_size)
@@ -348,10 +350,9 @@ class Agent_DQN(Agent):
         else:
             target_max_q = self.target_net(batch_next_state).detach().max(1)[0].squeeze(0) * self.args.gamma * (
                     1 - batch_done)
-
         # Compute Huber loss
         if self.args.use_pri_buffer:
-            loss = self.loss(policy_max_q, batch_reward + target_max_q) * Variable(
+            loss = (policy_max_q - (batch_reward + target_max_q.detach())).pow(2) * Variable(
                 torch.tensor(weights, dtype=torch.float32))
             prios = loss + 1e-5
             loss = loss.mean()
