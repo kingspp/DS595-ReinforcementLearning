@@ -13,6 +13,7 @@ import gc
 from agent import Agent
 from dqn_model import DQN
 from dueling_dqn_model import DuelingDQN
+from crnn_model import CrnnDQN
 import time
 from torch.autograd import Variable
 import json
@@ -74,9 +75,10 @@ class MetaData(object):
             print(
                 f"E: {self.data.episode} | M: {self.data.buffer_len} |  Step: {self.data.step} "
                 f"| T: {self.data.time:.2f} | Len: {self.data.ep_len} | EPS: {self.data.epsilon:.5f} "
-                f"| R: {self.data.reward} | AR: {self.data.avg_reward:.3f} | MAQ:{self.data.max_avg_q:.2f} "
+                f"| LR: {self.data.lr:.7f} | R: {self.data.reward} | AR: {self.data.avg_reward:.3f} "
+                f"| MAQ:{self.data.max_avg_q:.2f} "
                 f"| L: {self.data.loss:.2f} | AL: {self.data.avg_loss:.4f} | Mode: {self.data.mode} "
-                f"| LR: {self.data.lr:.7f} | ET: {naturaltime(self.data.time_elapsed)}")
+                f"| ET: {naturaltime(self.data.time_elapsed)}")
         self.fp.write(self.data._asdict().values().__str__().replace('odict_values([', '').replace('])', '\n'))
 
     def load(self, f):
@@ -133,7 +135,7 @@ class NaivePrioritizedBuffer(object):
         weights = (total * probs[indices]) ** (-beta)
         weights /= weights.max()
         weights = np.array(weights, dtype=np.float32)
-        return [*map(lambda x: Variable(torch.cat(x, 0)).to(self.args.device), zip(*samples)), indices, weights]
+        return [*zip(*samples), indices, weights]#[*map(lambda x: Variable(torch.cat(x, 0)).to(self.args.device), zip(*samples)), indices, weights]
 
     def update_priorities(self, batch_indices, batch_priorities):
         for idx, prio in zip(batch_indices, batch_priorities):
@@ -212,6 +214,10 @@ class Agent_DQN(Agent):
             print("Using dueling dqn . . .")
             self.policy_net = DuelingDQN(env).to(self.args.device)
             self.target_net = DuelingDQN(env).to(self.args.device)
+        elif self.args.use_crnn:
+            print("Using dueling crnn . . .")
+            self.policy_net = CrnnDQN(env).to(self.args.device)
+            self.target_net = CrnnDQN(env).to(self.args.device)
         else:
             self.policy_net = DQN(env).to(self.args.device)
             self.target_net = DQN(env).to(self.args.device)
@@ -274,7 +280,6 @@ class Agent_DQN(Agent):
         ###########################
         # YOUR IMPLEMENTATION HERE #
         with torch.no_grad():
-
             if self.args.test_dqn:
                 q, argq = self.policy_net(Variable(self.channel_first(observation))).data.cpu().max(1)
                 return self.action_list[argq]
@@ -288,7 +293,7 @@ class Agent_DQN(Agent):
             action = torch.tensor([np.random.choice(self.action_list, p=self.probability_list)])
 
         ###########################
-        return action, q
+        return action.item(), q.item()
 
     def optimize_model(self):
         """
@@ -304,6 +309,11 @@ class Agent_DQN(Agent):
         else:
             batch_state, batch_action, batch_next_state, batch_reward, batch_done = self.replay_buffer.sample(
                 self.args.batch_size)
+        batch_state = self.channel_first(torch.tensor(np.array(batch_state), dtype=torch.float32))
+        batch_action = torch.tensor(np.array(batch_action), dtype=torch.long)
+        batch_next_state = self.channel_first(torch.tensor(np.array(batch_next_state), dtype=torch.float32))
+        batch_reward = torch.tensor(np.array(batch_reward), dtype=torch.int32)
+        batch_done = torch.tensor(np.array(batch_done), dtype=torch.float32)
         policy_max_q = self.policy_net(batch_state).gather(1, batch_action.unsqueeze(1)).squeeze(1)
         if self.args.use_double_dqn:
             policy_ns_max_q = self.policy_net(batch_next_state)
@@ -346,7 +356,7 @@ class Agent_DQN(Agent):
             state = torch.tensor(state, dtype=torch.float32)
         if state.shape[1] == 4:
             return state
-        return torch.reshape(state, [1, 84, 84, 4]).permute(0, 3, 1, 2)
+        return torch.reshape(state, [-1, 84, 84, 4]).permute(0, 3, 1, 2)
 
     def save_model(self, i_episode):
         """
@@ -399,7 +409,7 @@ class Agent_DQN(Agent):
         for i_episode in range(1, self.args.max_episodes + 1):
             # Initialize the environment and state
             start_time = time.time()
-            state = self.channel_first(self.env.reset())
+            state = self.env.reset()
             self.reward_list.append(0)
             self.loss_list.append(0)
             self.max_q_list.append(0)
@@ -424,14 +434,11 @@ class Agent_DQN(Agent):
                 else:
                     self.mode = "Explore"
                 action, q = self.make_action(state)
-                next_state, reward, done, _ = self.env.step(action.item())
+                next_state, reward, done, _ = self.env.step(action)
                 self.reward_list[-1] += reward
-                self.max_q_list[-1] = max(self.max_q_list[-1], q[0].item())
-                next_state = self.channel_first(next_state)
-                reward = torch.tensor([reward], device=self.args.device)
+                self.max_q_list[-1] = max(self.max_q_list[-1], q)
                 # Store the transition in memory
-                self.replay_buffer.push(state, torch.tensor([int(action)]), next_state, reward,
-                                        torch.tensor([done], dtype=torch.float32))
+                self.replay_buffer.push(state, action, next_state, reward,done)
 
                 # Increment step and Episode Length
                 self.t += 1
@@ -458,6 +465,6 @@ class Agent_DQN(Agent):
                              self.reward_list[-1], np.mean(self.reward_list),
                              self.max_q_list[-1], np.mean(self.max_q_list),
                              self.loss_list[-1], np.mean(self.loss_list),
-                             self.mode, self.cur_lr)
+                             self.mode, self.optimizer.param_groups[0]['lr'])
 
         ###########################
