@@ -254,6 +254,9 @@ class Agent_DQN(Agent):
         if args.use_double_dqn:
             print('Using double dqn . . .')
 
+        if args.use_bnorm:
+            print("Using batch normalization . . .")
+
         print("Arguments: \n", json.dumps(vars(self.args), indent=2), '\n')
 
     def init_game_setting(self):
