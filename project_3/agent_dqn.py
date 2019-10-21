@@ -60,7 +60,8 @@ class MetaData(object):
         self.transition = namedtuple('Data',
                                      (
                                          "episode", "step", "time", "time_elapsed", "ep_len", "buffer_len", "epsilon",
-                                         "reward","avg_reward", "max_q", "max_avg_q","loss", "avg_loss", "mode", "lr"))
+                                         "reward", "avg_reward", "max_q", "max_avg_q", "loss", "avg_loss", "mode",
+                                         "lr"))
         self.fp = fp
         self.data = None
         self.args = args
@@ -135,7 +136,8 @@ class NaivePrioritizedBuffer(object):
         weights = (total * probs[indices]) ** (-beta)
         weights /= weights.max()
         weights = np.array(weights, dtype=np.float32)
-        return [*zip(*samples), indices, weights]#[*map(lambda x: Variable(torch.cat(x, 0)).to(self.args.device), zip(*samples)), indices, weights]
+        return [*zip(*samples), indices,
+                weights]  # [*map(lambda x: Variable(torch.cat(x, 0)).to(self.args.device), zip(*samples)), indices, weights]
 
     def update_priorities(self, batch_indices, batch_priorities):
         for idx, prio in zip(batch_indices, batch_priorities):
@@ -212,8 +214,8 @@ class Agent_DQN(Agent):
         # Create Policy and Target Networks
         if self.args.use_dueling:
             print("Using dueling dqn . . .")
-            self.policy_net = DuelingDQN(env).to(self.args.device)
-            self.target_net = DuelingDQN(env).to(self.args.device)
+            self.policy_net = DuelingDQN(env, self.args).to(self.args.device)
+            self.target_net = DuelingDQN(env, self.args).to(self.args.device)
         elif self.args.use_crnn:
             print("Using dueling crnn . . .")
             self.policy_net = CrnnDQN(env).to(self.args.device)
@@ -253,7 +255,6 @@ class Agent_DQN(Agent):
             print('Using double dqn . . .')
 
         print("Arguments: \n", json.dumps(vars(self.args), indent=2), '\n')
-
 
     def init_game_setting(self):
         """
@@ -309,11 +310,11 @@ class Agent_DQN(Agent):
         else:
             batch_state, batch_action, batch_next_state, batch_reward, batch_done = self.replay_buffer.sample(
                 self.args.batch_size)
-        batch_state = self.channel_first(torch.tensor(np.array(batch_state), dtype=torch.float32))
-        batch_action = torch.tensor(np.array(batch_action), dtype=torch.long)
-        batch_next_state = self.channel_first(torch.tensor(np.array(batch_next_state), dtype=torch.float32))
-        batch_reward = torch.tensor(np.array(batch_reward), dtype=torch.int32)
-        batch_done = torch.tensor(np.array(batch_done), dtype=torch.float32)
+        batch_state = Variable(self.channel_first(torch.tensor(np.array(batch_state), dtype=torch.float32)))
+        batch_action = Variable(torch.tensor(np.array(batch_action), dtype=torch.long))
+        batch_next_state = Variable(self.channel_first(torch.tensor(np.array(batch_next_state), dtype=torch.float32)))
+        batch_reward = Variable(torch.tensor(np.array(batch_reward), dtype=torch.int32))
+        batch_done = Variable(torch.tensor(np.array(batch_done), dtype=torch.float32))
         policy_max_q = self.policy_net(batch_state).gather(1, batch_action.unsqueeze(1)).squeeze(1)
         if self.args.use_double_dqn:
             policy_ns_max_q = self.policy_net(batch_next_state)
@@ -326,7 +327,7 @@ class Agent_DQN(Agent):
 
         # Compute Huber loss
         if self.args.use_pri_buffer:
-            loss = self.loss(policy_max_q, batch_reward + target_max_q) * torch.tensor(weights, dtype=torch.float32)
+            loss = self.loss(policy_max_q, batch_reward + target_max_q) * Variable(torch.tensor(weights, dtype=torch.float32))
             prios = loss + 1e-5
             loss = loss.mean()
         else:
@@ -336,7 +337,7 @@ class Agent_DQN(Agent):
         self.optimizer.zero_grad()
         loss.backward()
 
-        # Clip rewards between -1 and 1
+        # Clip gradients between -1 and 1
         for param in self.policy_net.parameters():
             param.grad.data.clamp_(-1, 1)
 
@@ -438,7 +439,7 @@ class Agent_DQN(Agent):
                 self.reward_list[-1] += reward
                 self.max_q_list[-1] = max(self.max_q_list[-1], q)
                 # Store the transition in memory
-                self.replay_buffer.push(state, action, next_state, reward,done)
+                self.replay_buffer.push(state, action, next_state, reward, done)
 
                 # Increment step and Episode Length
                 self.t += 1
@@ -456,7 +457,7 @@ class Agent_DQN(Agent):
             # Decay Step:
             if self.args.lr_scheduler:
                 self.cur_lr = self.scheduler.get_lr()[0]
-                if i_episode%self.args.lr_decay_step == 0 and self.cur_lr>self.args.lr_min:
+                if i_episode % self.args.lr_decay_step == 0 and self.cur_lr > self.args.lr_min:
                     self.scheduler.step(i_episode)
 
             # Update meta
@@ -465,6 +466,6 @@ class Agent_DQN(Agent):
                              self.reward_list[-1], np.mean(self.reward_list),
                              self.max_q_list[-1], np.mean(self.max_q_list),
                              self.loss_list[-1], np.mean(self.loss_list),
-                             self.mode, self.optimizer.param_groups[0]['lr'])
+                             self.mode, self.cur_lr)
 
         ###########################

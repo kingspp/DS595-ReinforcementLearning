@@ -29,6 +29,7 @@ def parse():
     parser.add_argument('--save_dir', type=str, default='checkpoint')
     parser.add_argument('--use_pri_buffer', type=bool, default=True)
     parser.add_argument('--use_double_dqn', type=bool, default=False)
+    parser.add_argument('--use_bnorm', type=bool, default=True)
     parser.add_argument('--use_dueling', type=bool, default=True)
     parser.add_argument('--use_crnn', type=bool, default=False)
     parser.add_argument('--lr', type=int, default=1e-3)

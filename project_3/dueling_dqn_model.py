@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import torch.nn as nn
+from torch import nn
 import torch.nn.functional as F
 import torch
 from torch.autograd import Variable
 
 
 class DuelingDQN(nn.Module):
-    def __init__(self, env, ):
+    def __init__(self, env, args):
         super(DuelingDQN, self).__init__()
+        self.args = args
 
         self.env = env
         self.num_actions = env.action_space.n
@@ -16,10 +17,13 @@ class DuelingDQN(nn.Module):
         self.features = nn.Sequential(
             nn.Conv2d(4, 32, kernel_size=8, stride=4),
             nn.ReLU(),
+            nn.BatchNorm2d(32) if self.args.use_bnorm else nn.Identity(),
             nn.Conv2d(32, 64, kernel_size=4, stride=2),
             nn.ReLU(),
+            nn.BatchNorm2d(64) if self.args.use_bnorm else nn.Identity(),
             nn.Conv2d(64, 64, kernel_size=3, stride=1),
-            nn.ReLU()
+            nn.ReLU(),
+            nn.BatchNorm2d(64) if self.args.use_bnorm else nn.Identity()
         )
 
         self.advantage = nn.Sequential(
