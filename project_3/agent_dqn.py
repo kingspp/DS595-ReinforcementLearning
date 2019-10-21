@@ -242,8 +242,8 @@ class Agent_DQN(Agent):
             self.policy_net = CrnnDQN(env).to(self.args.device)
             self.target_net = CrnnDQN(env).to(self.args.device)
         else:
-            self.policy_net = DQN(env).to(self.args.device)
-            self.target_net = DQN(env).to(self.args.device)
+            self.policy_net = DQN(env, self.args).to(self.args.device)
+            self.target_net = DQN(env, self.args).to(self.args.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=self.args.lr, eps=self.args.optimizer_eps)
         if self.args.lr_scheduler:
