@@ -316,7 +316,7 @@ class Agent_DQN(Agent):
         batch_state = Variable(self.channel_first(torch.tensor(np.array(batch_state), dtype=torch.float32)))
         batch_action = Variable(torch.tensor(np.array(batch_action), dtype=torch.long))
         batch_next_state = Variable(self.channel_first(torch.tensor(np.array(batch_next_state), dtype=torch.float32)))
-        batch_reward = Variable(torch.tensor(np.array(batch_reward), dtype=torch.int32))
+        batch_reward = Variable(torch.tensor(np.array(batch_reward), dtype=torch.float32))
         batch_done = Variable(torch.tensor(np.array(batch_done), dtype=torch.float32))
         policy_max_q = self.policy_net(batch_state).gather(1, batch_action.unsqueeze(1)).squeeze(1)
         if self.args.use_double_dqn:
