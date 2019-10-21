@@ -57,30 +57,51 @@ class MetaData(object):
     """
 
     def __init__(self, fp, args):
-        self.transition = namedtuple('Data',
-                                     (
-                                         "episode", "step", "time", "time_elapsed", "ep_len", "buffer_len", "epsilon",
-                                         "reward", "avg_reward", "max_q", "max_avg_q", "loss", "avg_loss", "mode",
-                                         "lr"))
+        self.episode_template = namedtuple('EpisodeData',
+                                       ("episode", "step", "time", "time_elapsed", "ep_len", "buffer_len", "epsilon",
+                                        "reward", "avg_reward", "max_q", "max_avg_q", "loss", "avg_loss", "mode", "lr"))
+        self.step_template = namedtuple('StepData', ("step", "epsilon", "reward", "max_q", "loss", "lr"))
         self.fp = fp
-        self.data = None
+        self.episode_data = None
+        self.step_data = None
         self.args = args
+        if self.args.tb_summary:
+            from tensorboardX import SummaryWriter
+            self.writer = SummaryWriter('/'.join(self.fp.name.split('/')[:-1])+'/tb_logs/')
 
-    def update(self, *args):
+    def update_step(self, *args):
+        self.step_data = self.step_template(*args)
+        if self.args.tb_summary:
+            self.writer.add_scalar('step/epsilon', self.step_data.epsilon, self.step_data.step)
+            self.writer.add_scalar('step/learning_rate', self.step_data.lr, self.step_data.step)
+            self.writer.add_scalar('step/reward', self.step_data.reward, self.step_data.step)
+            self.writer.add_scalar('step/max_q', self.step_data.max_q, self.step_data.step)
+            self.writer.add_scalar('step/loss', self.step_data.loss, self.step_data.step)
+
+
+    def update_episode(self, *args):
         """
         Update metadata
         :param args: args
         """
-        self.data = self.transition(*args)
-        if self.data.episode % self.args.disp_freq == 0:
+        self.episode_data = self.episode_template(*args)
+        if self.episode_data.episode % self.args.disp_freq == 0:
             print(
-                f"E: {self.data.episode} | M: {self.data.buffer_len} |  Step: {self.data.step} "
-                f"| T: {self.data.time:.2f} | Len: {self.data.ep_len} | EPS: {self.data.epsilon:.5f} "
-                f"| LR: {self.data.lr:.7f} | R: {self.data.reward} | AR: {self.data.avg_reward:.3f} "
-                f"| MAQ:{self.data.max_avg_q:.2f} "
-                f"| L: {self.data.loss:.2f} | AL: {self.data.avg_loss:.4f} | Mode: {self.data.mode} "
-                f"| ET: {naturaltime(self.data.time_elapsed)}")
-        self.fp.write(self.data._asdict().values().__str__().replace('odict_values([', '').replace('])', '\n'))
+                f"E: {self.episode_data.episode} | M: {self.episode_data.buffer_len} |  Step: {self.episode_data.step} "
+                f"| T: {self.episode_data.time:.2f} | Len: {self.episode_data.ep_len} | EPS: {self.episode_data.epsilon:.5f} "
+                f"| LR: {self.episode_data.lr:.7f} | R: {self.episode_data.reward} | AR: {self.episode_data.avg_reward:.3f} "
+                f"| MAQ:{self.episode_data.max_avg_q:.2f} "
+                f"| L: {self.episode_data.loss:.2f} | AL: {self.episode_data.avg_loss:.4f} | Mode: {self.episode_data.mode} "
+                f"| ET: {naturaltime(self.episode_data.time_elapsed)}")
+        if self.args.tb_summary:
+            self.writer.add_scalar('episode/epsilon', self.episode_data.epsilon, self.episode_data.episode)
+            self.writer.add_scalar('episode/steps', self.episode_data.step, self.episode_data.episode)
+            self.writer.add_scalar('episode/learning_rate', self.episode_data.lr, self.episode_data.episode)
+            self.writer.add_scalar('episode/avg_reward', self.episode_data.avg_reward, self.episode_data.episode)
+            self.writer.add_scalar('episode/avg_max_q', self.episode_data.max_avg_q, self.episode_data.episode)
+            self.writer.add_scalar('episode/avg_loss', self.episode_data.avg_loss, self.episode_data.episode)
+
+        self.fp.write(self.episode_data._asdict().values().__str__().replace('odict_values([', '').replace('])', '\n'))
 
     def load(self, f):
         """
@@ -88,14 +109,14 @@ class MetaData(object):
         :param f: File Pointer
         :return:
         """
-        self.data = self.transition(*json.load(f).values())
+        self.episode_data = self.episode_data(*json.load(f).values())
 
     def dump(self, f):
         """
         JSONify metadata
         :param f: file pointer
         """
-        json.dump(self.data._asdict(), f, cls=JsonEncoder, indent=2)
+        json.dump(self.episode_data._asdict(), f, cls=JsonEncoder, indent=2)
 
 
 class NaivePrioritizedBuffer(object):
@@ -330,7 +351,8 @@ class Agent_DQN(Agent):
 
         # Compute Huber loss
         if self.args.use_pri_buffer:
-            loss = self.loss(policy_max_q, batch_reward + target_max_q) * Variable(torch.tensor(weights, dtype=torch.float32))
+            loss = self.loss(policy_max_q, batch_reward + target_max_q) * Variable(
+                torch.tensor(weights, dtype=torch.float32))
             prios = loss + 1e-5
             loss = loss.mean()
         else:
@@ -396,7 +418,7 @@ class Agent_DQN(Agent):
         self.target_net.load_state_dict(self.policy_net.state_dict())
         if not self.args.test_dqn:
             self.meta.load(open(self.args.load_dir.replace('.th', '.meta')))
-            self.t = self.meta.data.step
+            self.t = self.meta.episode_data.step
         print(f"Model successfully restored.")
 
     def train(self):
@@ -443,6 +465,8 @@ class Agent_DQN(Agent):
                 self.max_q_list[-1] = max(self.max_q_list[-1], q)
                 # Store the transition in memory
                 self.replay_buffer.push(state, action, next_state, reward, done)
+                self.meta.update_step(self.t, self.cur_eps, self.reward_list[-1], self.max_q_list[-1],
+                                      self.loss_list[-1], self.cur_lr)
 
                 # Increment step and Episode Length
                 self.t += 1
@@ -464,11 +488,11 @@ class Agent_DQN(Agent):
                     self.scheduler.step(i_episode)
 
             # Update meta
-            self.meta.update(i_episode, self.t, time.time() - start_time, time.time() - train_start,
-                             self.ep_len, len(self.replay_buffer.memory), self.cur_eps,
-                             self.reward_list[-1], np.mean(self.reward_list),
-                             self.max_q_list[-1], np.mean(self.max_q_list),
-                             self.loss_list[-1], np.mean(self.loss_list),
-                             self.mode, self.cur_lr)
+            self.meta.update_episode(i_episode, self.t, time.time() - start_time, time.time() - train_start,
+                                     self.ep_len, len(self.replay_buffer.memory), self.cur_eps,
+                                     self.reward_list[-1], np.mean(self.reward_list),
+                                     self.max_q_list[-1], np.mean(self.max_q_list),
+                                     self.loss_list[-1], np.mean(self.loss_list),
+                                     self.mode, self.cur_lr)
 
         ###########################

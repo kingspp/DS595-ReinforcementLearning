@@ -2,3 +2,4 @@ opencv-python-headless
 gym==0.10.4
 gym[atari]
 humanize
+tensorboardX

@@ -37,6 +37,7 @@ def parse():
     parser.add_argument("--lr_min", type=float, default=1e-5)
     parser.add_argument("--lr_decay", type=float, default=0.999)
     parser.add_argument("--lr_decay_step", type=float, default=5)
+    parser.add_argument("--tb_summary", type=bool, default=True)
 
 
     try:
