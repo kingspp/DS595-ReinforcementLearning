@@ -417,7 +417,8 @@ class Agent_DQN(Agent):
         self.policy_net = torch.load(self.args.load_dir,
                                      map_location=torch.device(self.args.device)).to(self.args.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
-        if not self.args.test_dqn:
+        if not self.args.test_dqn and not self.args.restore_only_weights:
+            print('Restoring steps and meta . . .')
             self.meta.load(open(self.args.load_dir.replace('.th', '.meta')))
             self.t = self.meta.episode_data.step
         print(f"Model successfully restored.")
