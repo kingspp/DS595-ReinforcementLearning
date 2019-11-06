@@ -257,8 +257,8 @@ class Agent_DQN(Agent):
         self.loss = F.smooth_l1_loss
 
         # todo: Support for Multiprocessing. Bug in pytorch - https://github.com/pytorch/examples/issues/370
-        # self.policy_net.share_memory()
-        # self.target_net.share_memory()
+        self.policy_net.share_memory()
+        self.target_net.share_memory()
 
         # Set defaults for networks
         self.policy_net.train()
@@ -282,17 +282,10 @@ class Agent_DQN(Agent):
 
         print("Arguments: \n", json.dumps(vars(self.args), indent=2), '\n')
 
-    def init_game_setting(self):
-        """
-        Testing function will call this function at the begining of new game
-        Put anything you want to initialize if necessary.
-        If no parameters need to be initialized, you can leave it as blank.
-        """
-        ###########################
-        # YOUR IMPLEMENTATION HERE #
 
-        ###########################
+    def init_game_setting(self):
         pass
+
 
     def make_action(self, observation, test=True):
         """
@@ -373,55 +366,9 @@ class Agent_DQN(Agent):
         self.optimizer.step()
         return loss.cpu().detach().numpy()
 
-    def channel_first(self, state):
-        """
-        The action returned from the environment is nhwc, hence convert to nchw
-        :param state: state
-        :return: nchw state
-        """
-        if not isinstance(state, torch.Tensor):
-            state = torch.tensor(state, dtype=torch.float32)
-        if state.shape[1] == 4:
-            return state
-        return torch.reshape(state, [-1, 84, 84, 4]).permute(0, 3, 1, 2)
 
-    def save_model(self, i_episode):
-        """
-        Save Model based on condition
-        :param i_episode: Episode Number
-        """
-        if i_episode % self.args.save_freq == 0:
-            model_file = os.path.join(self.args.save_dir, f'model_e{i_episode}.th')
-            meta_file = os.path.join(self.args.save_dir, f'model_e{i_episode}.meta')
-            print(f"Saving model at {model_file}")
-            with open(model_file, 'wb') as f:
-                torch.save(self.policy_net, f)
-            with open(meta_file, 'w') as f:
-                self.meta.dump(f)
 
-    def collect_garbage(self, i_episode):
-        """
-        Collect garbage based on condition
-        :param i_episode: Episode Number
-        """
-        if i_episode % self.args.gc_freq == 0:
-            print("Executing garbage collector . . .")
-            gc.collect()
 
-    def load_model(self):
-        """
-        Load Model
-        :return:
-        """
-        print(f"Restoring model from {self.args.load_dir} . . . ")
-        self.policy_net = torch.load(self.args.load_dir,
-                                     map_location=torch.device(self.args.device)).to(self.args.device)
-        self.target_net.load_state_dict(self.policy_net.state_dict())
-        if not self.args.test_dqn and not self.args.restore_only_weights:
-            print('Restoring steps and meta . . .')
-            self.meta.load(open(self.args.load_dir.replace('.th', '.meta')))
-            self.t = self.meta.episode_data.step
-        print(f"Model successfully restored.")
 
     def train(self):
         """
@@ -429,72 +376,81 @@ class Agent_DQN(Agent):
         """
         ###########################
         # YOUR IMPLEMENTATION HERE #
-        self.t = 1
-        self.mode = "Random"
-        train_start = time.time()
-        if not self.args.load_dir == '':
-            self.load_model()
-        for i_episode in range(1, self.args.max_episodes + 1):
-            # Initialize the environment and state
-            start_time = time.time()
-            state = self.env.reset()
-            self.reward_list.append(0)
-            self.loss_list.append(0)
-            self.max_q_list.append(0)
-            self.ep_len = 0
-            done = False
+        def train_fn():
+            self.t = 1
+            self.mode = "Random"
+            train_start = time.time()
+            if not self.args.load_dir == '':
+                self.load_model()
+            for i_episode in range(1, self.args.max_episodes + 1):
+                # Initialize the environment and state
+                start_time = time.time()
+                state = self.env.reset()
+                self.reward_list.append(0)
+                self.loss_list.append(0)
+                self.max_q_list.append(0)
+                self.ep_len = 0
+                done = False
 
-            # Save Model
-            self.save_model(i_episode)
-            # Collect garbage
-            self.collect_garbage(i_episode)
+                # Save Model
+                self.save_model(i_episode)
+                # Collect garbage
+                self.collect_garbage(i_episode)
 
-            # Run the game
-            while not done:
-                # Update the target network, copying all weights and biases in DQN
-                if self.t % self.args.target_update == 0:
-                    print("Updating target network . . .")
-                    self.target_net.load_state_dict(self.policy_net.state_dict())
-                # Select and perform an action
-                self.cur_eps = max(self.args.eps_min, self.cur_eps - self.eps_delta)
-                if self.cur_eps == self.args.eps_min:
-                    self.mode = 'Exploit'
-                else:
-                    self.mode = "Explore"
-                action, q = self.make_action(state)
-                next_state, reward, done, _ = self.env.step(action)
-                self.reward_list[-1] += reward
-                self.max_q_list[-1] = max(self.max_q_list[-1], q)
-                # Store the transition in memory
-                self.replay_buffer.push(state, action, next_state, reward, done)
-                self.meta.update_step(self.t, self.cur_eps, self.reward_list[-1], self.max_q_list[-1],
-                                      self.loss_list[-1], self.cur_lr)
+                # Run the game
+                while not done:
+                    # Update the target network, copying all weights and biases in DQN
+                    if self.t % self.args.target_update == 0:
+                        print("Updating target network . . .")
+                        self.target_net.load_state_dict(self.policy_net.state_dict())
+                    # Select and perform an action
+                    self.cur_eps = max(self.args.eps_min, self.cur_eps - self.eps_delta)
+                    if self.cur_eps == self.args.eps_min:
+                        self.mode = 'Exploit'
+                    else:
+                        self.mode = "Explore"
+                    action, q = self.make_action(state)
+                    next_state, reward, done, _ = self.env.step(action)
+                    self.reward_list[-1] += reward
+                    self.max_q_list[-1] = max(self.max_q_list[-1], q)
+                    # Store the transition in memory
+                    self.replay_buffer.push(state, action, next_state, reward, done)
+                    self.meta.update_step(self.t, self.cur_eps, self.reward_list[-1], self.max_q_list[-1],
+                                          self.loss_list[-1], self.cur_lr)
 
-                # Increment step and Episode Length
-                self.t += 1
-                self.ep_len += 1
+                    # Increment step and Episode Length
+                    self.t += 1
+                    self.ep_len += 1
 
-                # Move to the next state
-                state = next_state
+                    # Move to the next state
+                    state = next_state
 
-                # Perform one step of the optimization (on the target network)
-                if self.ep_len % self.args.learn_freq == 0:
-                    loss = self.optimize_model()
-                    self.loss_list[-1] += loss
-            self.loss_list[-1] /= self.ep_len
+                    # Perform one step of the optimization (on the target network)
+                    if self.ep_len % self.args.learn_freq == 0:
+                        loss = self.optimize_model()
+                        self.loss_list[-1] += loss
+                self.loss_list[-1] /= self.ep_len
 
-            # Decay Step:
-            if self.args.lr_scheduler:
-                self.cur_lr = self.scheduler.get_lr()[0]
-                if i_episode % self.args.lr_decay_step == 0 and self.cur_lr > self.args.lr_min:
-                    self.scheduler.step(i_episode)
+                # Decay Step:
+                if self.args.lr_scheduler:
+                    self.cur_lr = self.scheduler.get_lr()[0]
+                    if i_episode % self.args.lr_decay_step == 0 and self.cur_lr > self.args.lr_min:
+                        self.scheduler.step(i_episode)
 
-            # Update meta
-            self.meta.update_episode(i_episode, self.t, time.time() - start_time, time.time() - train_start,
-                                     self.ep_len, len(self.replay_buffer.memory), self.cur_eps,
-                                     self.reward_list[-1], np.mean(self.reward_list),
-                                     self.max_q_list[-1], np.mean(self.max_q_list),
-                                     self.loss_list[-1], np.mean(self.loss_list),
-                                     self.mode, self.cur_lr)
+                # Update meta
+                self.meta.update_episode(i_episode, self.t, time.time() - start_time, time.time() - train_start,
+                                         self.ep_len, len(self.replay_buffer.memory), self.cur_eps,
+                                         self.reward_list[-1], np.mean(self.reward_list),
+                                         self.max_q_list[-1], np.mean(self.max_q_list),
+                                         self.loss_list[-1], np.mean(self.loss_list),
+                                         self.mode, self.cur_lr)
+        import multiprocessing as mp
+        processes = []
+        for rank in range(4):
+            p = mp.Process(target=train_fn)
+            p.start()
+            processes.append(p)
+        for p in processes:
+            p.join()
 
         ###########################

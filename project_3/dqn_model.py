@@ -22,33 +22,13 @@ class DQN(nn.Module):
         member variables.
         """
         super(DQN, self).__init__()
-        self.args = args
-        self.num_actions = env.action_space.n
         ###########################
         # YOUR IMPLEMENTATION HERE #
-        # self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
-        # self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
-        # self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
-        # self.fc1 = nn.Linear(7 * 7 * 64, 512)
-        # self.fc2 = nn.Linear(512, env.action_space.n)
-
-        self.head = nn.Sequential(
-            nn.Conv2d(4, 32, kernel_size=8, stride=4),
-            nn.ReLU(),
-            nn.BatchNorm2d(32) if self.args.use_bnorm else nn.Identity(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2),
-            nn.ReLU(),
-            nn.BatchNorm2d(64) if self.args.use_bnorm else nn.Identity(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1),
-            nn.ReLU(),
-            nn.BatchNorm2d(64) if self.args.use_bnorm else nn.Identity()
-        )
-        self.tail = nn.Sequential(
-            nn.Linear(7 * 7 * 64, 512),
-            nn.ReLU(),
-            nn.Linear(512, self.num_actions),
-            nn.Softmax()
-        )
+        self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
+        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
+        self.fc1 = nn.Linear(7 * 7 * 64, 512)
+        self.fc2 = nn.Linear(512, env.action_space.n)
 
     def forward(self, x):
         """
@@ -58,12 +38,10 @@ class DQN(nn.Module):
         """
         ###########################
         # YOUR IMPLEMENTATION HERE #
-        # x = F.relu(self.conv1(x))
-        # x = F.relu(self.conv2(x))
-        # x = F.relu(self.conv3(x))
-        # x = F.relu(self.fc1(x.view(x.size(0), -1)))
-        # x = self.fc2(x)
-        x = self.head(x)
-        x = self.tail(x.view(x.size(0), -1))
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+        x = F.relu(self.fc1(x.view(x.size(0), -1)))
+        x = self.fc2(x)
         ###########################
         return x
