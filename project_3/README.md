@@ -1,5 +1,5 @@
 
-# Individual Project 3
+# Reinforcement Learning - Individual Project 3
 # Deep Q-learning Network(DQN)
 
 ## Leaderboard and Bonus Points
